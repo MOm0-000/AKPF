@@ -1,0 +1,116 @@
+# L2 indoor scenario protocol
+# Coordinate frame: Gazebo world / MAVROS local ENU, meters.
+defaults:
+  start_pose: [0.0, 0.0, 0.195, 0.0, 0.0, 0.0]
+  safe_altitude_range_m: [1.2, 2.6]
+  nominal_flight_altitude_m: 2.0
+  success_condition: distance_to_goal < 0.5 and no_collision and flight_time < T_max
+  failure_conditions:
+    - collision == true
+    - altitude < min_altitude
+    - altitude > max_altitude
+    - distance_to_start > 15.0
+    - timeout
+    - FCU disconnected
+  metrics:
+    - success_rate
+    - collision_rate
+    - time_to_goal
+    - path_length
+    - minimum_clearance
+    - mean_speed
+    - max_speed
+    - control_jitter
+    - mode_drop_count
+    - shield_activation_count
+  trajectory_record_format:
+    timestamp_s: float
+    position_m: [x, y, z]
+    velocity_mps: [vx, vy, vz]
+    command_velocity_mps: [vx_cmd, vy_cmd, vz_cmd]
+    mode: string
+    armed: bool
+    nearest_obstacle_distance_m: float
+scenarios:
+  S1_single_front_obstacle:
+    world: worlds/l2/S1_single_front_obstacle.sdf
+    description: "Single obstacle placed between start and goal on the forward axis."
+    start: [0.0, 0.0, 0.195]
+    goal: [4.20, 0.00, 2.00]
+    safe_altitude_range_m: [1.2, 2.6]
+    T_max_s: 90.0
+    obstacles:
+      - name: front_block
+        center: [3.00, 0.00, 1.25]
+        size: [0.70, 1.60, 2.50]
+  S2_narrow_gate:
+    world: worlds/l2/S2_narrow_gate.sdf
+    description: "Two pillars create a narrow gate on the direct path."
+    start: [0.0, 0.0, 0.195]
+    goal: [4.20, 0.00, 2.00]
+    safe_altitude_range_m: [1.2, 2.6]
+    T_max_s: 100.0
+    obstacles:
+      - name: gate_left_pillar
+        center: [2.50, 0.90, 1.30]
+        size: [0.45, 0.45, 2.60]
+      - name: gate_right_pillar
+        center: [2.50, -0.90, 1.30]
+        size: [0.45, 0.45, 2.60]
+      - name: gate_top_reference
+        center: [2.50, 0.00, 2.65]
+        size: [0.50, 2.25, 0.12]
+  S3_corridor:
+    world: worlds/l2/S3_corridor.sdf
+    description: "A straight corridor constrains lateral motion."
+    start: [0.0, 0.0, 0.195]
+    goal: [4.20, 0.00, 2.00]
+    safe_altitude_range_m: [1.2, 2.6]
+    T_max_s: 110.0
+    obstacles:
+      - name: corridor_left_wall
+        center: [2.20, 1.20, 1.35]
+        size: [5.80, 0.16, 2.70]
+      - name: corridor_right_wall
+        center: [2.20, -1.20, 1.35]
+        size: [5.80, 0.16, 2.70]
+  S4_table_or_low_obstacle:
+    world: worlds/l2/S4_table_or_low_obstacle.sdf
+    description: "A low table-like obstacle tests vertical clearance logic."
+    start: [0.0, 0.0, 0.195]
+    goal: [4.20, 0.00, 2.00]
+    safe_altitude_range_m: [1.2, 2.6]
+    T_max_s: 100.0
+    obstacles:
+      - name: low_table_top
+        center: [2.60, 0.00, 0.80]
+        size: [1.70, 1.10, 0.16]
+      - name: low_table_leg_1
+        center: [1.90, 0.45, 0.40]
+        size: [0.12, 0.12, 0.80]
+      - name: low_table_leg_2
+        center: [3.30, 0.45, 0.40]
+        size: [0.12, 0.12, 0.80]
+      - name: low_table_leg_3
+        center: [1.90, -0.45, 0.40]
+        size: [0.12, 0.12, 0.80]
+      - name: low_table_leg_4
+        center: [3.30, -0.45, 0.40]
+        size: [0.12, 0.12, 0.80]
+  S5_corner:
+    world: worlds/l2/S5_corner.sdf
+    description: "An L-shaped corner requires a turn before reaching the target."
+    start: [0.0, 0.0, 0.195]
+    goal: [3.80, 2.60, 2.00]
+    safe_altitude_range_m: [1.2, 2.6]
+    T_max_s: 120.0
+    obstacles:
+      - name: corner_vertical_wall
+        center: [2.00, -0.70, 1.35]
+        size: [0.18, 2.60, 2.70]
+      - name: corner_horizontal_wall
+        center: [3.05, 1.30, 1.35]
+        size: [2.30, 0.18, 2.70]
+      - name: corner_inner_block
+        center: [2.55, 0.55, 1.25]
+        size: [0.55, 0.55, 2.50]

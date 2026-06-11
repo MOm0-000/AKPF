@@ -1,0 +1,14 @@
+/**:
+  ros__parameters:
+    plugin_denylist:
+      - actuator_control
+      - ftp
+      - hil
+      - altitude
+      - debug_value
+      - image_pub
+      - px4flow
+      - vibration
+      - vision_speed_estimate
+      - wheel_odometry
+      - distance_sensor
