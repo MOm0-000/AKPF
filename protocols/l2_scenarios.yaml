@@ -114,3 +114,64 @@ scenarios:
       - name: corner_inner_block
         center: [2.55, 0.55, 1.25]
         size: [0.55, 0.55, 2.50]
+  S6_cluttered_boxes:
+    world: worlds/l2/S6_cluttered_boxes.sdf
+    description: "Multiple staggered boxes test local-target switching and cluttered obstacle clearance."
+    start: [0.0, 0.0, 0.195]
+    goal: [4.35, 0.85, 2.00]
+    safe_altitude_range_m: [1.2, 2.6]
+    T_max_s: 150.0
+    obstacles:
+      - name: clutter_box_1
+        center: [1.60, 1.35, 1.25]
+        size: [0.50, 0.60, 2.50]
+      - name: clutter_box_2
+        center: [2.40, -1.35, 1.25]
+        size: [0.55, 0.60, 2.50]
+      - name: clutter_box_3
+        center: [3.05, 1.35, 1.25]
+        size: [0.50, 0.60, 2.50]
+      - name: clutter_box_4
+        center: [3.65, -0.85, 1.25]
+        size: [0.45, 0.55, 2.50]
+      - name: clutter_box_5
+        center: [3.90, 1.95, 1.25]
+        size: [0.40, 0.50, 2.50]
+  S8_vertical_constraint:
+    world: worlds/l2/S8_vertical_constraint.sdf
+    description: "A low overhead slab requires lower-altitude flight while keeping horizontal clearance."
+    start: [0.0, 0.0, 0.195]
+    goal: [4.20, 0.00, 1.55]
+    safe_altitude_range_m: [1.1, 2.6]
+    T_max_s: 140.0
+    obstacles:
+      - name: low_ceiling_slab
+        center: [2.65, 0.00, 2.45]
+        size: [2.50, 2.30, 0.30]
+      - name: ceiling_left_support
+        center: [2.05, 1.20, 1.25]
+        size: [0.18, 0.18, 2.50]
+      - name: ceiling_right_support
+        center: [3.25, -1.20, 1.25]
+        size: [0.18, 0.18, 2.50]
+  S9_multi_corner:
+    world: worlds/l2/S9_multi_corner.sdf
+    description: "Three wall segments form a multi-corner route and stress local minima handling."
+    start: [0.0, 0.0, 0.195]
+    goal: [4.40, 2.65, 2.00]
+    safe_altitude_range_m: [1.2, 2.6]
+    T_max_s: 160.0
+    obstacles:
+      - name: multi_corner_wall_1
+        center: [1.35, -0.95, 1.35]
+        size: [0.18, 2.20, 2.70]
+      - name: multi_corner_wall_2
+        center: [2.60, 1.05, 1.35]
+        size: [2.20, 0.18, 2.70]
+      - name: multi_corner_wall_3
+        center: [3.45, 2.85, 1.35]
+        size: [0.18, 0.95, 2.70]
+      - name: multi_corner_block
+        center: [2.55, -0.05, 1.25]
+        size: [0.55, 0.55, 2.50]
+

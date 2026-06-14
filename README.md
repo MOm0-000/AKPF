@@ -62,6 +62,14 @@ S4_table_or_low_obstacle
 S5_corner
 ```
 
+并补充 3 个已落地进阶几何压力场景：
+
+```text
+S6_cluttered_boxes
+S8_vertical_constraint
+S9_multi_corner
+```
+
 核心文件：
 
 ```text
@@ -76,6 +84,66 @@ scripts/check_l2_worlds.sh
 ```text
 L2_ArduPilot室内场景复现教程.md
 L2_室内仿真场景与实验协议.md
+```
+
+### L3：真值几何 AKPF 非学习版
+
+完成独立 ROS2 节点 `l3_akpf_navigation`，使用 L2 场景中的已知障碍物几何生成 AKPF 速度指令。当前 S1-S5 基础场景已完成验收。S1/S5 等问题场景通过通用候选速度、通用几何局部目标和终端区处理，不依赖场景专用局部目标点。
+
+核心文件：
+
+```text
+src/l3_akpf_navigation
+scripts/run_l3_akpf.sh
+```
+
+参考文档：
+
+```text
+L3_ArduPilot真值几何AKPF复现教程.md
+L3_真值几何AKPF验收记录.md
+```
+
+### L3.5：进阶真值几何压力测试
+
+完成 S6/S8/S9 三个进阶真值几何场景验收，用于在进入 L4 感知层前压测多障碍切换、低顶板高度约束和多转角局部极小。L3.5 仍然不使用点云、深度相机或强化学习，也不加入场景专用固定路点。
+
+验收结果：
+
+```text
+S6_cluttered_boxes：goal_dist=0.48, min_clearance=0.81
+S8_vertical_constraint：goal_dist=0.48, min_clearance=0.57
+S9_multi_corner：goal_dist=0.48, min_clearance=0.58
+```
+
+参考文档：
+
+```text
+L3_5_进阶真值几何AKPF压力测试复现教程.md
+```
+
+### L4：点云/局部地图 AKPF
+
+已完成 L4.1 最小点云局部地图链路：`PointCloud2 -> 局部裁剪 -> voxel 降采样 -> 最近点距离 -> 粗法向`。L4.2 已补齐 Gazebo 深度相机模型、L4 专用 world、Gazebo 点云 topic 检查脚本和 bridge/mapper 启动脚本；当前 `ros_gz_bridge` 已安装，bridge 脚本已可启动；完整 Gazebo 多终端仿真验证按教程由用户执行。
+
+核心文件：
+
+```text
+src/l4_perception_mapping
+models/iris_with_l4_depth_camera
+worlds/l4/S1_depth_camera.sdf
+scripts/run_l4_mapping_demo.sh
+scripts/start_l4_depth_world.sh
+scripts/start_l4_pointcloud_bridge.sh
+scripts/run_l4_gazebo_mapper.sh
+```
+
+参考文档：
+
+```text
+L4_点云局部地图AKPF复现教程.md
+L4_2_Gazebo深度相机点云桥接验证教程.md
+L4_点云局部地图验收记录.md
 ```
 
 ## 目录结构
@@ -135,12 +203,4 @@ cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
 ArduPilot_AKPF_工程实施路线.md
 ```
 
-当前建议下一步进入 L3：轨迹与实验数据记录层，统一记录位置、速度、速度指令、模式、解锁状态、最近障碍距离等数据。
-
-## 科研方案
-
-AKPF 的科研方案、可行性评估、核心方法和实验设计见：
-
-```text
-docs/AKPF_科研方案与可行性评估.md
-```
+当前建议先由用户按 `L4_2_Gazebo深度相机点云桥接验证教程.md` 安装 `ros_gz_bridge` 并完成 Gazebo 点云桥接验证；验证通过后进入 L4.3，做相机点云到 MAVROS local ENU 的坐标变换，再替换 L3 真值几何距离。
