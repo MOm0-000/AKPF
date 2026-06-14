@@ -12,7 +12,7 @@ ArduPilot SITL / ArduCopter
 MAVROS2
 ```
 
-当前项目选择 ArduPilot 路线，不使用 PX4。
+当前项目选择 ArduPilot 。
 
 ## 已完成层级
 
@@ -173,4 +173,4 @@ cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
 ArduPilot_AKPF_工程实施路线.md
 ```
 
-按 `L4_2_Gazebo深度相机点云桥接验证教程.md` 安装 `ros_gz_bridge` 并完成 Gazebo 点云桥接验证；验证通过后进入 L4.3，做相机点云到 MAVROS local ENU 的坐标变换，再替换 L3 真值几何距离。
+接下来的打算：按 `L4_2_Gazebo深度相机点云桥接验证教程.md` 安装 `ros_gz_bridge` 并完成 Gazebo 点云桥接验证；验证通过后进入 L4.3，做相机点云到 MAVROS local ENU 的坐标变换，再替换 L3 真值几何距离。
