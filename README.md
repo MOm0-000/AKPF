@@ -165,36 +165,6 @@ cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
 
 预期 5 个场景均能加载并运行 12 秒。
 
-## 运行 L1 速度闭环
-
-终端 1：启动 Gazebo 场景。
-
-```bash
-cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
-./scripts/start_l2_world.sh S1_single_front_obstacle
-```
-
-终端 2：启动 ArduPilot SITL。
-
-```bash
-cd ~/ardupilot/Tools/autotest
-python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
-```
-
-终端 3：启动 MAVROS。
-
-```bash
-cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
-./scripts/start_mavros_l1.sh
-```
-
-终端 4：运行速度状态机。
-
-```bash
-cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
-./scripts/run_l1_velocity.sh
-```
-
 ## 工程路线
 
 总体路线见：
@@ -203,4 +173,4 @@ cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
 ArduPilot_AKPF_工程实施路线.md
 ```
 
-当前建议先由用户按 `L4_2_Gazebo深度相机点云桥接验证教程.md` 安装 `ros_gz_bridge` 并完成 Gazebo 点云桥接验证；验证通过后进入 L4.3，做相机点云到 MAVROS local ENU 的坐标变换，再替换 L3 真值几何距离。
+按 `L4_2_Gazebo深度相机点云桥接验证教程.md` 安装 `ros_gz_bridge` 并完成 Gazebo 点云桥接验证；验证通过后进入 L4.3，做相机点云到 MAVROS local ENU 的坐标变换，再替换 L3 真值几何距离。
