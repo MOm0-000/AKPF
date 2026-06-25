@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/point_stamped.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/vector3_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -23,6 +24,14 @@ struct Point3
   double x{0.0};
   double y{0.0};
   double z{0.0};
+};
+
+struct Quaternion
+{
+  double x{0.0};
+  double y{0.0};
+  double z{0.0};
+  double w{1.0};
 };
 
 struct VoxelKey
@@ -48,9 +57,20 @@ struct VoxelHash
   }
 };
 
+struct VoxelEntry
+{
+  Point3 point;
+  rclcpp::Time stamp;
+};
+
 double norm(const Point3 & p)
 {
   return std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+}
+
+double dot(const Point3 & a, const Point3 & b)
+{
+  return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
 Point3 operator-(const Point3 & a, const Point3 & b)
@@ -58,9 +78,43 @@ Point3 operator-(const Point3 & a, const Point3 & b)
   return {a.x - b.x, a.y - b.y, a.z - b.z};
 }
 
+Point3 operator+(const Point3 & a, const Point3 & b)
+{
+  return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
 bool finite_point(const Point3 & p)
 {
   return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
+}
+
+Quaternion normalize_quat(Quaternion q)
+{
+  const double n = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+  if (n < 1e-9) {
+    return {};
+  }
+  q.x /= n;
+  q.y /= n;
+  q.z /= n;
+  q.w /= n;
+  return q;
+}
+
+Point3 rotate_by_quat(const Point3 & p, const Quaternion & q_in)
+{
+  const Quaternion q = normalize_quat(q_in);
+  const Point3 u{q.x, q.y, q.z};
+  const double s = q.w;
+  const double dot_uv = u.x * p.x + u.y * p.y + u.z * p.z;
+  const Point3 cross{
+    u.y * p.z - u.z * p.y,
+    u.z * p.x - u.x * p.z,
+    u.x * p.y - u.y * p.x};
+  return {
+    2.0 * dot_uv * u.x + (s * s - dot(u, u)) * p.x + 2.0 * s * cross.x,
+    2.0 * dot_uv * u.y + (s * s - dot(u, u)) * p.y + 2.0 * s * cross.y,
+    2.0 * dot_uv * u.z + (s * s - dot(u, u)) * p.z + 2.0 * s * cross.z};
 }
 
 const sensor_msgs::msg::PointField * find_field(
@@ -157,7 +211,8 @@ public:
   : Node("l4_pointcloud_mapper")
   {
     pointcloud_topic_ = declare_parameter<std::string>("pointcloud_topic", "/l4/points");
-    odom_topic_ = declare_parameter<std::string>("odom_topic", "/mavros/local_position/odom");
+    odom_topic_ = declare_parameter<std::string>("odom_topic", "/mavros/local_position/local");
+    pose_topic_ = declare_parameter<std::string>("pose_topic", "/mavros/local_position/pose");
     use_odom_ = declare_parameter<bool>("use_odom", true);
     query_position_.x = declare_parameter<double>("query_x", 0.0);
     query_position_.y = declare_parameter<double>("query_y", 0.0);
@@ -165,10 +220,16 @@ public:
     local_radius_m_ = declare_parameter<double>("local_radius_m", 6.0);
     voxel_size_m_ = declare_parameter<double>("voxel_size_m", 0.15);
     max_input_points_ = declare_parameter<int>("max_input_points", 200000);
+    map_memory_s_ = declare_parameter<double>("map_memory_s", 90.0);
+    max_map_voxels_ = declare_parameter<int>("max_map_voxels", 80000);
     stale_cloud_timeout_s_ = declare_parameter<double>("stale_cloud_timeout_s", 2.0);
     query_rate_hz_ = declare_parameter<double>("query_rate_hz", 10.0);
     log_period_s_ = declare_parameter<double>("log_period_s", 1.0);
     output_frame_id_ = declare_parameter<std::string>("output_frame_id", "map");
+    transform_to_odom_frame_ = declare_parameter<bool>("transform_to_odom_frame", false);
+    camera_offset_.x = declare_parameter<double>("camera_offset_x", 0.22);
+    camera_offset_.y = declare_parameter<double>("camera_offset_y", 0.0);
+    camera_offset_.z = declare_parameter<double>("camera_offset_z", 0.06);
 
     if (voxel_size_m_ <= 0.0) {
       voxel_size_m_ = 0.15;
@@ -179,6 +240,12 @@ public:
     if (query_rate_hz_ <= 0.0) {
       query_rate_hz_ = 10.0;
     }
+    if (map_memory_s_ < 0.0) {
+      map_memory_s_ = 0.0;
+    }
+    if (max_map_voxels_ < 100) {
+      max_map_voxels_ = 100;
+    }
 
     const auto cloud_qos = rclcpp::QoS(rclcpp::KeepLast(5)).reliable().durability_volatile();
     pointcloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
@@ -186,8 +253,11 @@ public:
       std::bind(&L4PointcloudMapper::pointcloud_callback, this, std::placeholders::_1));
 
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      odom_topic_, rclcpp::QoS(20),
+      odom_topic_, rclcpp::SensorDataQoS(),
       std::bind(&L4PointcloudMapper::odom_callback, this, std::placeholders::_1));
+    pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      pose_topic_, rclcpp::SensorDataQoS(),
+      std::bind(&L4PointcloudMapper::pose_callback, this, std::placeholders::_1));
 
     nearest_distance_pub_ = create_publisher<std_msgs::msg::Float32>("/l4/nearest_distance", 10);
     nearest_point_pub_ = create_publisher<geometry_msgs::msg::PointStamped>("/l4/nearest_point", 10);
@@ -201,9 +271,9 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "L4 pointcloud mapper started: cloud=%s odom=%s use_odom=%s voxel=%.2f local_radius=%.2f",
-      pointcloud_topic_.c_str(), odom_topic_.c_str(), use_odom_ ? "true" : "false",
-      voxel_size_m_, local_radius_m_);
+      "L4 pointcloud mapper started: cloud=%s odom=%s pose=%s use_odom=%s transform=%s voxel=%.2f local_radius=%.2f memory=%.1fs",
+      pointcloud_topic_.c_str(), odom_topic_.c_str(), pose_topic_.c_str(), use_odom_ ? "true" : "false",
+      transform_to_odom_frame_ ? "odom_frame" : "input_frame", voxel_size_m_, local_radius_m_, map_memory_s_);
   }
 
 private:
@@ -212,6 +282,22 @@ private:
     odom_position_.x = msg->pose.pose.position.x;
     odom_position_.y = msg->pose.pose.position.y;
     odom_position_.z = msg->pose.pose.position.z;
+    odom_orientation_.x = msg->pose.pose.orientation.x;
+    odom_orientation_.y = msg->pose.pose.orientation.y;
+    odom_orientation_.z = msg->pose.pose.orientation.z;
+    odom_orientation_.w = msg->pose.pose.orientation.w;
+    has_odom_ = true;
+  }
+
+  void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+  {
+    odom_position_.x = msg->pose.position.x;
+    odom_position_.y = msg->pose.position.y;
+    odom_position_.z = msg->pose.position.z;
+    odom_orientation_.x = msg->pose.orientation.x;
+    odom_orientation_.y = msg->pose.orientation.y;
+    odom_orientation_.z = msg->pose.orientation.z;
+    odom_orientation_.w = msg->pose.orientation.w;
     has_odom_ = true;
   }
 
@@ -225,6 +311,14 @@ private:
 
   void pointcloud_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
   {
+    if (transform_to_odom_frame_ && !has_odom_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Waiting for odometry before transforming camera cloud to %s.",
+        output_frame_id_.c_str());
+      return;
+    }
+
     if (msg->is_bigendian) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000,
@@ -244,8 +338,7 @@ private:
 
     const Point3 query = current_query_position();
     const double radius2 = local_radius_m_ * local_radius_m_;
-    std::unordered_map<VoxelKey, Point3, VoxelHash> voxels;
-    voxels.reserve(4096);
+    const auto stamp = now();
 
     std::size_t parsed = 0;
     std::size_t accepted = 0;
@@ -269,41 +362,90 @@ private:
         if (!finite_point(point)) {
           continue;
         }
+        const Point3 query_point = transform_input_point(point);
 
-        const Point3 delta = point - query;
+        const Point3 delta = query_point - query;
         const double dist2 = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
         if (dist2 > radius2) {
           continue;
         }
 
         VoxelKey key{
-          static_cast<int>(std::floor(point.x / voxel_size_m_)),
-          static_cast<int>(std::floor(point.y / voxel_size_m_)),
-          static_cast<int>(std::floor(point.z / voxel_size_m_))};
+          static_cast<int>(std::floor(query_point.x / voxel_size_m_)),
+          static_cast<int>(std::floor(query_point.y / voxel_size_m_)),
+          static_cast<int>(std::floor(query_point.z / voxel_size_m_))};
 
-        if (voxels.find(key) == voxels.end()) {
-          voxels.emplace(key, point);
-          ++accepted;
+        auto [it, inserted] = voxel_map_.insert({key, {query_point, stamp}});
+        if (!inserted) {
+          it->second.point = query_point;
+          it->second.stamp = stamp;
         }
+        ++accepted;
       }
     }
 
-    local_points_.clear();
-    local_points_.reserve(voxels.size());
-    for (const auto & entry : voxels) {
-      local_points_.push_back(entry.second);
-    }
+    rebuild_local_points(query, stamp);
 
     cloud_header_ = msg->header;
+    if (transform_to_odom_frame_) {
+      cloud_header_.frame_id = output_frame_id_;
+    }
     if (cloud_header_.frame_id.empty()) {
       cloud_header_.frame_id = output_frame_id_;
     }
-    last_cloud_time_ = now();
+    last_cloud_time_ = stamp;
     has_cloud_ = true;
     input_point_count_ = parsed;
     accepted_point_count_ = accepted;
 
     local_cloud_pub_->publish(make_cloud_msg(local_points_, cloud_header_));
+  }
+
+  void rebuild_local_points(const Point3 & query, const rclcpp::Time & stamp)
+  {
+    const double radius2 = local_radius_m_ * local_radius_m_;
+
+    for (auto it = voxel_map_.begin(); it != voxel_map_.end();) {
+      const double age = (stamp - it->second.stamp).seconds();
+      const Point3 delta = it->second.point - query;
+      const double dist2 = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+      if ((map_memory_s_ > 0.0 && age > map_memory_s_) || dist2 > radius2) {
+        it = voxel_map_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    if (voxel_map_.size() > static_cast<std::size_t>(max_map_voxels_)) {
+      const std::size_t target = static_cast<std::size_t>(max_map_voxels_);
+      while (voxel_map_.size() > target) {
+        auto oldest = voxel_map_.begin();
+        for (auto it = voxel_map_.begin(); it != voxel_map_.end(); ++it) {
+          if (it->second.stamp < oldest->second.stamp) {
+            oldest = it;
+          }
+        }
+        voxel_map_.erase(oldest);
+      }
+    }
+
+    local_points_.clear();
+    local_points_.reserve(voxel_map_.size());
+    for (const auto & entry : voxel_map_) {
+      local_points_.push_back(entry.second.point);
+    }
+  }
+
+  Point3 transform_input_point(const Point3 & point) const
+  {
+    if (!transform_to_odom_frame_) {
+      return point;
+    }
+    if (!has_odom_) {
+      return point;
+    }
+    const Point3 body_point = point + camera_offset_;
+    return odom_position_ + rotate_by_quat(body_point, odom_orientation_);
   }
 
   void query_timer_callback()
@@ -390,20 +532,27 @@ private:
 
   std::string pointcloud_topic_;
   std::string odom_topic_;
+  std::string pose_topic_;
   bool use_odom_{true};
   Point3 query_position_{};
   Point3 odom_position_{};
+  Quaternion odom_orientation_{};
   bool has_odom_{false};
   double local_radius_m_{6.0};
   double voxel_size_m_{0.15};
   int max_input_points_{200000};
+  double map_memory_s_{90.0};
+  int max_map_voxels_{80000};
   double stale_cloud_timeout_s_{2.0};
   double query_rate_hz_{10.0};
   double log_period_s_{1.0};
   std::string output_frame_id_{"map"};
+  bool transform_to_odom_frame_{false};
+  Point3 camera_offset_{0.22, 0.0, 0.06};
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr nearest_distance_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr nearest_point_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr nearest_normal_pub_;
@@ -411,6 +560,7 @@ private:
   rclcpp::TimerBase::SharedPtr query_timer_;
 
   std::vector<Point3> local_points_;
+  std::unordered_map<VoxelKey, VoxelEntry, VoxelHash> voxel_map_;
   std_msgs::msg::Header cloud_header_;
   rclcpp::Time last_cloud_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_log_time_{0, 0, RCL_ROS_TIME};

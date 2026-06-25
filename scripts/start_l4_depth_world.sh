@@ -23,7 +23,7 @@ GZ_SERVER_ONLY="${GZ_SERVER_ONLY:-true}"
 set -u
 
 if [[ "${GZ_SERVER_ONLY}" == "true" ]]; then
-  exec gz sim -s -v4 -r "${WORLD_FILE}"
+  exec gz sim -v4  -r "${WORLD_FILE}"
 fi
 
 exec gz sim -v4 -r "${WORLD_FILE}"

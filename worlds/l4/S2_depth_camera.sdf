@@ -1,0 +1,302 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="L4_S2_depth_camera">
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" />
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat" />
+
+    <scene>
+      <ambient>0.85 0.85 0.85</ambient>
+      <background>0.78 0.80 0.82</background>
+      <grid>false</grid>
+    </scene>
+
+    <spherical_coordinates>
+      <latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg>
+      <elevation>584</elevation>
+      <heading_deg>0</heading_deg>
+      <surface_model>EARTH_WGS84</surface_model>
+    </spherical_coordinates>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 8 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <include>
+      <uri>model://iris_with_l4_depth_camera</uri>
+      <pose degrees="true">0 0 0.195 0 0 0</pose>
+    </include>
+
+
+<model name="l2_start_marker">
+  <static>true</static>
+  <pose>0.000 0.000 0.030 0 0 0</pose>
+  <link name="link">
+    <visual name="visual">
+      <geometry>
+        <cylinder>
+          <radius>0.28</radius>
+          <length>0.04</length>
+        </cylinder>
+      </geometry>
+      <material>
+        <ambient>0.1 0.25 1.0 0.85</ambient>
+        <diffuse>0.1 0.25 1.0 0.85</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+<model name="l2_goal_marker">
+  <static>true</static>
+  <pose>4.200 0.000 0.030 0 0 0</pose>
+  <link name="link">
+    <visual name="visual">
+      <geometry>
+        <cylinder>
+          <radius>0.28</radius>
+          <length>0.04</length>
+        </cylinder>
+      </geometry>
+      <material>
+        <ambient>0.0 0.8 0.2 0.85</ambient>
+        <diffuse>0.0 0.8 0.2 0.85</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+
+<model name="l2_floor">
+  <static>true</static>
+  <pose>0.000 0.000 -0.025 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>10.000 8.000 0.050</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>10.000 8.000 0.050</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.72 0.73 0.70 1</ambient>
+        <diffuse>0.72 0.73 0.70 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+<model name="l2_wall_x_positive">
+  <static>true</static>
+  <pose>5.000 0.000 1.500 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>0.120 8.000 3.000</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>0.120 8.000 3.000</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.72 0.72 0.75 1</ambient>
+        <diffuse>0.72 0.72 0.75 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+<model name="l2_wall_x_negative">
+  <static>true</static>
+  <pose>-5.000 0.000 1.500 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>0.120 8.000 3.000</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>0.120 8.000 3.000</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.72 0.72 0.75 1</ambient>
+        <diffuse>0.72 0.72 0.75 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+<model name="l2_wall_y_positive">
+  <static>true</static>
+  <pose>0.000 4.000 1.500 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>10.000 0.120 3.000</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>10.000 0.120 3.000</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.72 0.72 0.75 1</ambient>
+        <diffuse>0.72 0.72 0.75 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+<model name="l2_wall_y_negative">
+  <static>true</static>
+  <pose>0.000 -4.000 1.500 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>10.000 0.120 3.000</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>10.000 0.120 3.000</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.72 0.72 0.75 1</ambient>
+        <diffuse>0.72 0.72 0.75 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+
+<model name="gate_left_pillar">
+  <static>true</static>
+  <pose>2.500 0.900 1.300 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>0.450 0.450 2.600</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>0.450 0.450 2.600</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.55 0.55 0.58 1</ambient>
+        <diffuse>0.55 0.55 0.58 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+<model name="gate_right_pillar">
+  <static>true</static>
+  <pose>2.500 -0.900 1.300 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>0.450 0.450 2.600</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>0.450 0.450 2.600</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.55 0.55 0.58 1</ambient>
+        <diffuse>0.55 0.55 0.58 1</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+
+<model name="gate_top_reference">
+  <static>true</static>
+  <pose>2.500 0.000 2.650 0 0 0</pose>
+  <link name="link">
+    <collision name="collision">
+      <geometry>
+        <box>
+          <size>0.500 2.250 0.120</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="visual">
+      <geometry>
+        <box>
+          <size>0.500 2.250 0.120</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>0.50 0.50 0.53 0.75</ambient>
+        <diffuse>0.50 0.50 0.53 0.75</diffuse>
+        <specular>0.25 0.25 0.25 1</specular>
+      </material>
+    </visual>
+  </link>
+</model>
+  </world>
+</sdf>

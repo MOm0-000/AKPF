@@ -10,6 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_executable(l3_akpf_node src/l3_akpf_node.cpp)
 target_compile_features(l3_akpf_node PUBLIC cxx_std_17)
@@ -19,6 +20,7 @@ ament_target_dependencies(
   geometry_msgs
   mavros_msgs
   nav_msgs
+  sensor_msgs
 )
 
 install(TARGETS l3_akpf_node

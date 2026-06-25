@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <mavros_msgs/msg/state.hpp>
@@ -47,6 +48,8 @@ public:
     publish_rate_hz_ = this->declare_parameter<double>("publish_rate_hz", 20.0);
     use_stamped_cmd_vel_ = this->declare_parameter<bool>("use_stamped_cmd_vel", true);
     mission_timeout_s_ = this->declare_parameter<double>("mission_timeout_s", 180.0);
+    odom_topic_ = this->declare_parameter<std::string>("odom_topic", "/mavros/local_position/local");
+    pose_topic_ = this->declare_parameter<std::string>("pose_topic", "/mavros/local_position/pose");
 
     if (publish_rate_hz_ < 10.0) {
       RCLCPP_WARN(get_logger(), "publish_rate_hz %.1f is low; clamping to 10 Hz", publish_rate_hz_);
@@ -61,8 +64,11 @@ public:
         std::bind(&L1VelocityNode::state_cb, this, std::placeholders::_1));
 
     local_pos_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "/mavros/local_position/odom", rclcpp::SensorDataQoS(),
+        odom_topic_, rclcpp::SensorDataQoS(),
         std::bind(&L1VelocityNode::local_pos_cb, this, std::placeholders::_1));
+    local_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        pose_topic_, rclcpp::SensorDataQoS(),
+        std::bind(&L1VelocityNode::local_pose_cb, this, std::placeholders::_1));
 
     auto velocity_qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort().durability_volatile();
 
@@ -106,6 +112,7 @@ public:
     RCLCPP_INFO(get_logger(), "Velocity interface: %s",
                 use_stamped_cmd_vel_ ? "/mavros/setpoint_velocity/cmd_vel (TwistStamped)"
                                      : "/mavros/setpoint_velocity/cmd_vel_unstamped (Twist)");
+    RCLCPP_INFO(get_logger(), "MAVROS position topics: odom=%s pose=%s", odom_topic_.c_str(), pose_topic_.c_str());
     RCLCPP_INFO(get_logger(), "Limits: v_xy=%.2f m/s, v_z=%.2f m/s, publish_rate=%.1f Hz",
                 v_xy_, v_z_, publish_rate_hz_);
   }
@@ -120,6 +127,13 @@ private:
     current_x_ = msg->pose.pose.position.x;
     current_y_ = msg->pose.pose.position.y;
     current_z_ = msg->pose.pose.position.z;
+    odom_received_ = true;
+  }
+
+  void local_pose_cb(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+    current_x_ = msg->pose.position.x;
+    current_y_ = msg->pose.position.y;
+    current_z_ = msg->pose.position.z;
     odom_received_ = true;
   }
 
@@ -425,6 +439,7 @@ private:
 
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr local_pos_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr local_pose_sub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr stamped_velocity_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr unstamped_velocity_pub_;
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_cli_;
@@ -434,6 +449,8 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 
   mavros_msgs::msg::State current_state_;
+  std::string odom_topic_{"/mavros/local_position/local"};
+  std::string pose_topic_{"/mavros/local_position/pose"};
   bool state_received_ = false;
   bool odom_received_ = false;
   double current_x_ = 0.0;

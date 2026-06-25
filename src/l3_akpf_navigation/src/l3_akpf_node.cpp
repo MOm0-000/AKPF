@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include <mavros_msgs/msg/state.hpp>
@@ -7,10 +8,13 @@
 #include <mavros_msgs/srv/command_tol.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/point_field.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <future>
 #include <limits>
 #include <memory>
@@ -62,8 +66,56 @@ Vec3 normalize(const Vec3 & a) {
   return a / n;
 }
 
+bool finite_vec(const Vec3 & a) {
+  return std::isfinite(a.x) && std::isfinite(a.y) && std::isfinite(a.z);
+}
+
 double clamp(double value, double lo, double hi) {
   return std::max(lo, std::min(value, hi));
+}
+
+const sensor_msgs::msg::PointField * find_cloud_field(
+    const sensor_msgs::msg::PointCloud2 & msg,
+    const std::string & name) {
+  for (const auto & field : msg.fields) {
+    if (field.name == name) {
+      return &field;
+    }
+  }
+  return nullptr;
+}
+
+bool read_cloud_field(
+    const sensor_msgs::msg::PointCloud2 & msg,
+    const sensor_msgs::msg::PointField & field,
+    std::size_t base,
+    double & value) {
+  if (base + field.offset >= msg.data.size()) {
+    return false;
+  }
+
+  const auto * ptr = msg.data.data() + base + field.offset;
+  if (field.datatype == sensor_msgs::msg::PointField::FLOAT32) {
+    if (base + field.offset + sizeof(float) > msg.data.size()) {
+      return false;
+    }
+    float raw{0.0F};
+    std::memcpy(&raw, ptr, sizeof(float));
+    value = static_cast<double>(raw);
+    return true;
+  }
+
+  if (field.datatype == sensor_msgs::msg::PointField::FLOAT64) {
+    if (base + field.offset + sizeof(double) > msg.data.size()) {
+      return false;
+    }
+    double raw{0.0};
+    std::memcpy(&raw, ptr, sizeof(double));
+    value = raw;
+    return true;
+  }
+
+  return false;
 }
 
 struct BoxObstacle {
@@ -108,6 +160,13 @@ public:
     mission_timeout_s_ = declare_parameter<double>("mission_timeout_s", 0.0);
     publish_rate_hz_ = declare_parameter<double>("publish_rate_hz", 20.0);
     use_stamped_cmd_vel_ = declare_parameter<bool>("use_stamped_cmd_vel", true);
+    distance_source_ = declare_parameter<std::string>("distance_source", "truth_geometry");
+    perception_cloud_topic_ = declare_parameter<std::string>("perception_cloud_topic", "/l4/local_cloud");
+    perception_stale_timeout_s_ = declare_parameter<double>("perception_stale_timeout_s", 1.0);
+    perception_fallback_to_truth_ = declare_parameter<bool>("perception_fallback_to_truth", true);
+    perception_min_points_ = declare_parameter<int>("perception_min_points", 10);
+    odom_topic_ = declare_parameter<std::string>("odom_topic", "/mavros/local_position/local");
+    pose_topic_ = declare_parameter<std::string>("pose_topic", "/mavros/local_position/pose");
 
     enable_repulsion_ = declare_parameter<bool>("enable_repulsion", true);
     enable_kinodynamic_ = declare_parameter<bool>("enable_kinodynamic", true);
@@ -119,7 +178,7 @@ public:
     k_repulse_ = declare_parameter<double>("k_repulse", 0.55);
     k_curl_ = declare_parameter<double>("k_curl", 0.75);
     k_aero_ = declare_parameter<double>("k_aero", 0.20);
-    max_xy_speed_ = declare_parameter<double>("max_xy_speed", 0.45);
+    max_xy_speed_ = declare_parameter<double>("max_xy_speed", 0.35);
     max_z_speed_ = declare_parameter<double>("max_z_speed", 0.22);
     max_accel_ = declare_parameter<double>("max_accel", 0.55);
     goal_radius_ = declare_parameter<double>("goal_radius", 0.50);
@@ -131,9 +190,9 @@ public:
     anti_retreat_progress_ = declare_parameter<double>("anti_retreat_progress", -0.05);
     anti_retreat_penalty_ = declare_parameter<double>("anti_retreat_penalty", 8.0);
     recovery_progress_floor_ = declare_parameter<double>("recovery_progress_floor", 0.05);
-    candidate_safe_margin_ = declare_parameter<double>("candidate_safe_margin", 0.02);
-    candidate_comfort_margin_ = declare_parameter<double>("candidate_comfort_margin", 0.38);
-    local_target_clearance_ = declare_parameter<double>("local_target_clearance", 0.08);
+    candidate_safe_margin_ = declare_parameter<double>("candidate_safe_margin", 0.15);
+    candidate_comfort_margin_ = declare_parameter<double>("candidate_comfort_margin", 0.50);
+    local_target_clearance_ = declare_parameter<double>("local_target_clearance", 0.15);
     local_target_inflate_extra_ = declare_parameter<double>("local_target_inflate_extra", 0.25);
     local_target_hold_radius_ = declare_parameter<double>("local_target_hold_radius", 0.65);
     local_target_min_advance_ = declare_parameter<double>("local_target_min_advance", 0.85);
@@ -149,6 +208,21 @@ public:
     brake_accel_ = declare_parameter<double>("brake_accel", 0.70);
     control_delay_s_ = declare_parameter<double>("control_delay_s", 0.25);
     critical_d_eff_ = declare_parameter<double>("critical_d_eff", 0.08);
+    emergency_d_eff_ = declare_parameter<double>("emergency_d_eff", 0.35);
+    recovery_xy_speed_ = declare_parameter<double>("recovery_xy_speed", 0.22);
+    recovery_climb_speed_ = declare_parameter<double>("recovery_climb_speed", 0.12);
+    recovery_exit_d_eff_ = declare_parameter<double>("recovery_exit_d_eff", 0.85);
+    recovery_exit_path_margin_ = declare_parameter<double>("recovery_exit_path_margin", 0.15);
+    recovery_min_duration_s_ = declare_parameter<double>("recovery_min_duration_s", 3.0);
+
+    if (recovery_exit_d_eff_ < emergency_d_eff_) {
+      RCLCPP_WARN(
+          get_logger(),
+          "recovery_exit_d_eff %.2f is below emergency_d_eff %.2f; clamping exit threshold",
+          recovery_exit_d_eff_, emergency_d_eff_);
+      recovery_exit_d_eff_ = emergency_d_eff_;
+    }
+    recovery_min_duration_s_ = std::max(0.0, recovery_min_duration_s_);
 
     if (publish_rate_hz_ < 10.0) {
       RCLCPP_WARN(get_logger(), "publish_rate_hz %.1f is low; clamping to 10 Hz", publish_rate_hz_);
@@ -170,8 +244,16 @@ public:
         std::bind(&L3AkpfNode::state_cb, this, std::placeholders::_1));
 
     local_pos_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "/mavros/local_position/odom", rclcpp::SensorDataQoS(),
+        odom_topic_, rclcpp::SensorDataQoS(),
         std::bind(&L3AkpfNode::local_pos_cb, this, std::placeholders::_1));
+    local_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+        pose_topic_, rclcpp::SensorDataQoS(),
+        std::bind(&L3AkpfNode::local_pose_cb, this, std::placeholders::_1));
+
+    const auto perception_qos = rclcpp::QoS(rclcpp::KeepLast(5)).reliable().durability_volatile();
+    perception_cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
+        perception_cloud_topic_, perception_qos,
+        std::bind(&L3AkpfNode::perception_cloud_cb, this, std::placeholders::_1));
 
     auto velocity_qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort().durability_volatile();
     stamped_velocity_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
@@ -203,6 +285,10 @@ public:
     RCLCPP_INFO(get_logger(), "AKPF terms: repulsion=%s kino=%s curl=%s aero=%s",
                 yes_no(enable_repulsion_), yes_no(enable_kinodynamic_),
                 yes_no(enable_curl_), yes_no(enable_aero_));
+    RCLCPP_INFO(get_logger(), "Distance source: %s (perception cloud: %s, fallback_to_truth=%s)",
+                distance_source_.c_str(), perception_cloud_topic_.c_str(),
+                yes_no(perception_fallback_to_truth_));
+    RCLCPP_INFO(get_logger(), "MAVROS position topics: odom=%s pose=%s", odom_topic_.c_str(), pose_topic_.c_str());
   }
 
 private:
@@ -298,6 +384,70 @@ private:
     odom_received_ = true;
   }
 
+  void local_pose_cb(const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+    const Vec3 next_pos{
+        msg->pose.position.x,
+        msg->pose.position.y,
+        msg->pose.position.z};
+    const rclcpp::Time stamp =
+        msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0 ? now() : rclcpp::Time(msg->header.stamp);
+
+    if (odom_received_) {
+      const double dt = (stamp - last_pose_time_).seconds();
+      if (dt > 1e-3 && dt < 1.0) {
+        current_vel_ = {
+            (next_pos.x - current_pos_.x) / dt,
+            (next_pos.y - current_pos_.y) / dt,
+            (next_pos.z - current_pos_.z) / dt};
+      }
+    }
+
+    current_pos_ = next_pos;
+    last_pose_time_ = stamp;
+    odom_received_ = true;
+  }
+
+  void perception_cloud_cb(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+    if (msg->is_bigendian) {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "Ignoring big-endian perception PointCloud2.");
+      return;
+    }
+
+    const auto * x_field = find_cloud_field(*msg, "x");
+    const auto * y_field = find_cloud_field(*msg, "y");
+    const auto * z_field = find_cloud_field(*msg, "z");
+    if (x_field == nullptr || y_field == nullptr || z_field == nullptr) {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "Ignoring perception cloud without x/y/z fields.");
+      return;
+    }
+
+    std::vector<Vec3> points;
+    points.reserve(static_cast<std::size_t>(msg->width) * std::max<std::uint32_t>(msg->height, 1));
+    const std::size_t rows = std::max<std::uint32_t>(msg->height, 1);
+    const std::size_t cols = msg->width;
+    for (std::size_t row = 0; row < rows; ++row) {
+      for (std::size_t col = 0; col < cols; ++col) {
+        const std::size_t base = row * msg->row_step + col * msg->point_step;
+        Vec3 p;
+        if (!read_cloud_field(*msg, *x_field, base, p.x) ||
+            !read_cloud_field(*msg, *y_field, base, p.y) ||
+            !read_cloud_field(*msg, *z_field, base, p.z) ||
+            !finite_vec(p)) {
+          continue;
+        }
+        points.push_back(p);
+      }
+    }
+
+    perception_points_ = std::move(points);
+    last_perception_cloud_time_ = now();
+    has_perception_cloud_ = true;
+  }
+
   void control_loop() {
     if ((now() - mission_start_time_).seconds() > mission_timeout_s_ &&
         mission_state_ != MissionState::DONE && mission_state_ != MissionState::FAILSAFE) {
@@ -310,7 +460,7 @@ private:
     switch (mission_state_) {
       case MissionState::WAITING_DEPS:
         if (deps_ready()) {
-          RCLCPP_INFO(get_logger(), "Dependencies ready: state, odom, arming, set_mode, takeoff, land");
+          RCLCPP_INFO(get_logger(), "Dependencies ready: state, odom, arming, set_mode, takeoff, land, perception");
           enter_state(MissionState::WAITING_FCU);
         } else {
           log_waiting_deps();
@@ -401,15 +551,24 @@ private:
     }
   }
 
-  bool deps_ready() const {
+  bool deps_ready() {
+    refresh_perception_cloud_state();
     return state_received_ && odom_received_ &&
            arming_cli_->service_is_ready() &&
            set_mode_cli_->service_is_ready() &&
            takeoff_cli_->service_is_ready() &&
-           land_cli_->service_is_ready();
+           land_cli_->service_is_ready() &&
+           (perception_fallback_to_truth_ || !using_perception_source() || perception_cloud_current_);
   }
 
   void run_akpf_navigation() {
+    refresh_perception_cloud_state();
+    if (using_perception_source() && !perception_cloud_current_ && !perception_fallback_to_truth_) {
+      RCLCPP_ERROR(get_logger(), "Perception distance source is stale or unavailable; entering failsafe");
+      enter_state(MissionState::FAILSAFE);
+      return;
+    }
+
     const Vec3 goal_error = scenario_.goal - current_pos_;
     const double distance_to_goal = norm(goal_error);
     const DistanceQuery nearest = nearest_obstacle(current_pos_);
@@ -418,10 +577,11 @@ private:
 
     if (current_pos_.z < scenario_.min_altitude - 0.25 ||
         current_pos_.z > scenario_.max_altitude + 0.25 ||
-        nearest.signed_distance < -0.03) {
+        nearest.signed_distance < -0.03 ||
+        last_d_eff_ < -0.08) {
       RCLCPP_ERROR(get_logger(),
-                   "Safety violation: z=%.2f, nearest=%s %.2f m; entering failsafe",
-                   current_pos_.z, nearest.obstacle_name.c_str(), nearest.signed_distance);
+                   "Safety violation: z=%.2f, nearest=%s %.2f m d_eff=%.2f; entering failsafe",
+                   current_pos_.z, nearest.obstacle_name.c_str(), nearest.signed_distance, last_d_eff_);
       enter_state(MissionState::FAILSAFE);
       return;
     }
@@ -448,10 +608,50 @@ private:
     const Vec3 nav_target = choose_navigation_target(scenario_.goal, force_local_target);
     const Vec3 nav_error = nav_target - current_pos_;
 
-    Vec3 cmd = compute_akpf_velocity(nav_error, nearest);
-    cmd = select_local_candidate_velocity(cmd, nav_error);
+    const bool perception_recovery_available =
+        using_perception_source() && std::isfinite(last_d_eff_);
+    if (perception_recovery_available && !recovery_active_ && last_d_eff_ < emergency_d_eff_) {
+      recovery_active_ = true;
+      recovery_start_time_ = now();
+      RCLCPP_WARN(
+          get_logger(),
+          "Entering perception recovery: nearest=%s %.2f m d_eff=%.2f",
+          nearest.obstacle_name.c_str(), nearest.signed_distance, last_d_eff_);
+    }
+    if (recovery_active_) {
+      const double recovery_elapsed = (now() - recovery_start_time_).seconds();
+      const Vec3 recovery_exit_dir = normalize_xy_vec({nav_error.x, nav_error.y, 0.0});
+      const double recovery_exit_margin = norm_xy(recovery_exit_dir) > 1e-6 ?
+          predicted_clearance_margin(recovery_exit_dir, norm(nav_error)) :
+          std::numeric_limits<double>::infinity();
+      if (!perception_recovery_available) {
+        recovery_active_ = false;
+      } else if (last_d_eff_ > recovery_exit_d_eff_ &&
+                 recovery_elapsed >= recovery_min_duration_s_ &&
+                 recovery_exit_margin >= recovery_exit_path_margin_) {
+        recovery_active_ = false;
+        RCLCPP_INFO(
+            get_logger(),
+            "Leaving perception recovery: nearest=%s %.2f m d_eff=%.2f path_margin=%.2f elapsed=%.1fs",
+            nearest.obstacle_name.c_str(), nearest.signed_distance, last_d_eff_,
+            recovery_exit_margin, recovery_elapsed);
+      }
+    }
+
+    Vec3 cmd;
+    const bool emergency_recovery = perception_recovery_available && recovery_active_;
+    if (emergency_recovery) {
+      cmd = compute_recovery_velocity(nearest, nav_error);
+    } else {
+      cmd = compute_akpf_velocity(nav_error, nearest);
+      cmd = select_local_candidate_velocity(cmd, nav_error);
+    }
     cmd = limit_speed(cmd, distance_to_goal);
-    cmd = limit_accel(cmd);
+    if (!emergency_recovery) {
+      cmd = limit_accel(cmd);
+    } else {
+      last_command_time_ = now();
+    }
 
     if (current_pos_.z < scenario_.min_altitude && cmd.z < 0.0) {
       cmd.z = 0.0;
@@ -468,10 +668,11 @@ private:
     if ((now() - last_diag_time_).seconds() >= 1.0) {
       last_diag_time_ = now();
       RCLCPP_INFO(get_logger(),
-                  "AKPF pos=(%.2f, %.2f, %.2f) goal=%.2f nav=%s(%.2f, %.2f) nearest=%s %.2f d_eff=%.2f cmd=(%.2f, %.2f, %.2f)",
+                  "AKPF pos=(%.2f, %.2f, %.2f) goal=%.2f nav=%s(%.2f, %.2f) nearest=%s %.2f d_eff=%.2f mode=%s cmd=(%.2f, %.2f, %.2f)",
                   current_pos_.x, current_pos_.y, current_pos_.z, distance_to_goal,
                   using_local_target_ ? "local" : "global", nav_target.x, nav_target.y,
                   nearest.obstacle_name.c_str(), nearest.signed_distance, last_d_eff_,
+                  emergency_recovery ? "recover" : "nav",
                   cmd.x, cmd.y, cmd.z);
     }
   }
@@ -700,7 +901,7 @@ private:
 
   double predicted_clearance_margin(const Vec3 & dir, double goal_distance) const {
     double min_clearance = std::numeric_limits<double>::infinity();
-    for (const double horizon : {0.45, 0.90, 1.35, 1.80}) {
+    for (const double horizon : {0.45, 0.90, 1.35, 1.80, 2.40, 3.00}) {
       double sample_distance = horizon;
       if (std::isfinite(goal_distance)) {
         // Do not punish a direction for what would happen after the vehicle has already reached the goal.
@@ -798,6 +999,51 @@ private:
     return field;
   }
 
+  Vec3 compute_recovery_velocity(const DistanceQuery & nearest, const Vec3 & nav_error) const {
+    Vec3 away = normalize_xy_vec({nearest.normal.x, nearest.normal.y, 0.0});
+    if (norm_xy(away) < 1e-6) {
+      away = normalize_xy_vec({-last_cmd_.x, -last_cmd_.y, 0.0});
+    }
+    if (norm_xy(away) < 1e-6) {
+      away = {-1.0, 0.0, 0.0};
+    }
+
+    const Vec3 goal_dir = normalize_xy_vec({nav_error.x, nav_error.y, 0.0});
+    Vec3 tangent_left{-away.y, away.x, 0.0};
+    Vec3 tangent_right{away.y, -away.x, 0.0};
+    tangent_left = normalize_xy_vec(tangent_left);
+    tangent_right = normalize_xy_vec(tangent_right);
+    Vec3 tangent = dot(tangent_left, goal_dir) >= dot(tangent_right, goal_dir) ?
+        tangent_left : tangent_right;
+    if (norm_xy(goal_dir) < 1e-6 || norm_xy(tangent) < 1e-6) {
+      tangent = normalize_xy_vec({last_cmd_.x, last_cmd_.y, 0.0});
+    }
+    if (norm_xy(tangent) < 1e-6) {
+      tangent = tangent_left;
+    }
+
+    const double risk = clamp((emergency_d_eff_ - last_d_eff_) / std::max(emergency_d_eff_, 1e-3), 0.0, 1.0);
+    const double normal_weight = 0.35 + 0.45 * risk;
+    const double tangent_weight = 0.95 - 0.30 * risk;
+    Vec3 recovery_dir = normalize_xy_vec(away * normal_weight + tangent * tangent_weight);
+    if (norm_xy(recovery_dir) < 1e-6) {
+      recovery_dir = away;
+    }
+
+    double vz = 0.0;
+    if (current_pos_.z < scenario_.goal.z) {
+      vz = std::min(recovery_climb_speed_, scenario_.goal.z - current_pos_.z);
+    }
+    if (current_pos_.z < scenario_.min_altitude + 0.25) {
+      vz = std::max(vz, recovery_climb_speed_);
+    }
+
+    return {
+      recovery_dir.x * recovery_xy_speed_ * (0.80 + 0.20 * risk),
+      recovery_dir.y * recovery_xy_speed_ * (0.80 + 0.20 * risk),
+      vz};
+  }
+
   Vec3 limit_speed(Vec3 cmd, double distance_to_goal) const {
     double max_xy = max_xy_speed_;
     if (distance_to_goal < slow_radius_) {
@@ -827,12 +1073,43 @@ private:
   }
 
   DistanceQuery nearest_obstacle(const Vec3 & p) const {
+    if (using_perception_source() &&
+        perception_cloud_current_ &&
+        perception_points_.size() >= static_cast<std::size_t>(std::max(perception_min_points_, 1))) {
+      return query_perception_cloud(p);
+    }
+
     DistanceQuery best;
     for (const auto & obstacle : scenario_.obstacles) {
       DistanceQuery q = query_box(p, obstacle);
       if (q.signed_distance < best.signed_distance) {
         best = q;
       }
+    }
+    return best;
+  }
+
+  DistanceQuery query_perception_cloud(const Vec3 & p) const {
+    DistanceQuery best;
+    best.obstacle_name = "perception_map";
+    Vec3 nearest_point;
+
+    for (const auto & point : perception_points_) {
+      const double d = norm(point - p);
+      if (d < best.signed_distance) {
+        best.signed_distance = d;
+        nearest_point = point;
+      }
+    }
+
+    if (!std::isfinite(best.signed_distance)) {
+      best.normal = {1.0, 0.0, 0.0};
+      return best;
+    }
+
+    best.normal = normalize(p - nearest_point);
+    if (norm(best.normal) < 1e-6) {
+      best.normal = {1.0, 0.0, 0.0};
     }
     return best;
   }
@@ -897,6 +1174,7 @@ private:
       last_progress_time_ = state_entry_time_;
       has_active_local_target_ = false;
       using_local_target_ = false;
+      recovery_active_ = false;
     }
     RCLCPP_INFO(get_logger(), "State -> %s", state_name(next_state));
   }
@@ -918,17 +1196,19 @@ private:
   }
 
   void log_waiting_deps() {
+    refresh_perception_cloud_state();
     if ((now() - last_diag_time_).seconds() < 2.0) {
       return;
     }
     last_diag_time_ = now();
     RCLCPP_INFO(get_logger(),
-                "Waiting deps: state=%s odom=%s arming=%s set_mode=%s takeoff=%s land=%s",
+                "Waiting deps: state=%s odom=%s arming=%s set_mode=%s takeoff=%s land=%s perception=%s",
                 yes_no(state_received_), yes_no(odom_received_),
                 yes_no(arming_cli_->service_is_ready()),
                 yes_no(set_mode_cli_->service_is_ready()),
                 yes_no(takeoff_cli_->service_is_ready()),
-                yes_no(land_cli_->service_is_ready()));
+                yes_no(land_cli_->service_is_ready()),
+                yes_no(!using_perception_source() || perception_cloud_current_ || perception_fallback_to_truth_));
   }
 
   void log_periodic(const std::string & text) {
@@ -940,6 +1220,28 @@ private:
 
   const char * yes_no(bool value) const {
     return value ? "yes" : "no";
+  }
+
+  bool using_perception_source() const {
+    return distance_source_ == "perception_map";
+  }
+
+  void refresh_perception_cloud_state() {
+    if (!using_perception_source()) {
+      perception_cloud_current_ = true;
+      return;
+    }
+    if (!has_perception_cloud_ ||
+        perception_points_.size() < static_cast<std::size_t>(std::max(perception_min_points_, 1))) {
+      perception_cloud_current_ = false;
+      return;
+    }
+    if (perception_stale_timeout_s_ <= 0.0) {
+      perception_cloud_current_ = true;
+      return;
+    }
+    perception_cloud_current_ =
+        (now() - last_perception_cloud_time_).seconds() <= perception_stale_timeout_s_;
   }
 
   void handle_futures() {
@@ -1037,6 +1339,13 @@ private:
 
   std::string scenario_name_;
   ScenarioGeometry scenario_;
+  std::string distance_source_{"truth_geometry"};
+  std::string perception_cloud_topic_{"/l4/local_cloud"};
+  std::string odom_topic_{"/mavros/local_position/local"};
+  std::string pose_topic_{"/mavros/local_position/pose"};
+  double perception_stale_timeout_s_{1.0};
+  bool perception_fallback_to_truth_{true};
+  int perception_min_points_{10};
 
   double takeoff_alt_{2.0};
   double mission_timeout_s_{120.0};
@@ -1052,7 +1361,7 @@ private:
   double k_repulse_{0.55};
   double k_curl_{0.75};
   double k_aero_{0.20};
-  double max_xy_speed_{0.45};
+  double max_xy_speed_{0.35};
   double max_z_speed_{0.22};
   double max_accel_{0.55};
   double goal_radius_{0.50};
@@ -1064,9 +1373,9 @@ private:
   double anti_retreat_progress_{-0.05};
   double anti_retreat_penalty_{8.0};
   double recovery_progress_floor_{0.05};
-  double candidate_safe_margin_{0.02};
-  double candidate_comfort_margin_{0.38};
-  double local_target_clearance_{0.08};
+  double candidate_safe_margin_{0.15};
+  double candidate_comfort_margin_{0.50};
+  double local_target_clearance_{0.15};
   double local_target_inflate_extra_{0.25};
   double local_target_hold_radius_{0.65};
   double local_target_min_advance_{0.85};
@@ -1082,6 +1391,12 @@ private:
   double brake_accel_{0.70};
   double control_delay_s_{0.25};
   double critical_d_eff_{0.08};
+  double emergency_d_eff_{0.35};
+  double recovery_xy_speed_{0.22};
+  double recovery_climb_speed_{0.12};
+  double recovery_exit_d_eff_{0.85};
+  double recovery_exit_path_margin_{0.15};
+  double recovery_min_duration_s_{3.0};
 
   mavros_msgs::msg::State current_state_;
   Vec3 current_pos_;
@@ -1090,11 +1405,15 @@ private:
   Vec3 active_local_target_;
   bool has_active_local_target_{false};
   bool using_local_target_{false};
+  std::vector<Vec3> perception_points_;
 
   bool state_received_{false};
   bool odom_received_{false};
   bool takeoff_sent_{false};
   bool land_sent_{false};
+  bool has_perception_cloud_{false};
+  bool perception_cloud_current_{false};
+  bool recovery_active_{false};
 
   double last_nearest_distance_{std::numeric_limits<double>::infinity()};
   double last_d_eff_{std::numeric_limits<double>::infinity()};
@@ -1110,9 +1429,14 @@ private:
   rclcpp::Time last_command_time_;
   rclcpp::Time last_progress_time_;
   rclcpp::Time takeoff_request_time_;
+  rclcpp::Time recovery_start_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_perception_cloud_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_pose_time_{0, 0, RCL_ROS_TIME};
 
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr local_pos_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr local_pose_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr perception_cloud_sub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr stamped_velocity_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr unstamped_velocity_pub_;
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_cli_;

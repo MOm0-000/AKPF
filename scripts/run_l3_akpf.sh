@@ -7,6 +7,13 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCENARIO="${SCENARIO:-S1_single_front_obstacle}"
 MISSION_TIMEOUT_S="${MISSION_TIMEOUT_S:-0.0}"
 USE_STAMPED_CMD_VEL="${USE_STAMPED_CMD_VEL:-true}"
+ODOM_TOPIC="${ODOM_TOPIC:-/mavros/local_position/local}"
+POSE_TOPIC="${POSE_TOPIC:-/mavros/local_position/pose}"
+DISTANCE_SOURCE="${DISTANCE_SOURCE:-truth_geometry}"
+PERCEPTION_CLOUD_TOPIC="${PERCEPTION_CLOUD_TOPIC:-/l4/local_cloud}"
+PERCEPTION_STALE_TIMEOUT_S="${PERCEPTION_STALE_TIMEOUT_S:-1.0}"
+PERCEPTION_FALLBACK_TO_TRUTH="${PERCEPTION_FALLBACK_TO_TRUTH:-true}"
+PERCEPTION_MIN_POINTS="${PERCEPTION_MIN_POINTS:-10}"
 ENABLE_REPULSION="${ENABLE_REPULSION:-true}"
 ENABLE_KINO="${ENABLE_KINO:-true}"
 ENABLE_CURL="${ENABLE_CURL:-true}"
@@ -27,6 +34,7 @@ LOCAL_TARGET_PROGRESS_WEIGHT="${LOCAL_TARGET_PROGRESS_WEIGHT:-0.55}"
 LOCAL_TARGET_SAMPLE_STEP="${LOCAL_TARGET_SAMPLE_STEP:-0.20}"
 PROGRESS_STALL_TIMEOUT_S="${PROGRESS_STALL_TIMEOUT_S:-8.0}"
 PROGRESS_STALL_EPSILON="${PROGRESS_STALL_EPSILON:-0.20}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 
 case "${MISSION_TIMEOUT_S}" in
   *.*) ;;
@@ -37,7 +45,7 @@ source /opt/ros/humble/setup.bash
 source "${PROJECT_DIR}/install/setup.bash"
 set -u
 
-# Local FastDDS discovery can be slow in this WSL setup.
+# Local DDS discovery can be slow in this WSL setup.
 (ros2 node list --no-daemon --spin-time 10 >/tmp/l3_akpf_node_warmup.log 2>&1 || true) &
 (ros2 topic list -t --no-daemon --spin-time 10 >/tmp/l3_akpf_topic_warmup.log 2>&1 || true) &
 
@@ -45,6 +53,13 @@ exec ros2 run l3_akpf_navigation l3_akpf_node --ros-args \
   -p scenario:="${SCENARIO}" \
   -p mission_timeout_s:="${MISSION_TIMEOUT_S}" \
   -p use_stamped_cmd_vel:="${USE_STAMPED_CMD_VEL}" \
+  -p odom_topic:="${ODOM_TOPIC}" \
+  -p pose_topic:="${POSE_TOPIC}" \
+  -p distance_source:="${DISTANCE_SOURCE}" \
+  -p perception_cloud_topic:="${PERCEPTION_CLOUD_TOPIC}" \
+  -p perception_stale_timeout_s:="${PERCEPTION_STALE_TIMEOUT_S}" \
+  -p perception_fallback_to_truth:="${PERCEPTION_FALLBACK_TO_TRUTH}" \
+  -p perception_min_points:="${PERCEPTION_MIN_POINTS}" \
   -p enable_repulsion:="${ENABLE_REPULSION}" \
   -p enable_kinodynamic:="${ENABLE_KINO}" \
   -p enable_curl:="${ENABLE_CURL}" \

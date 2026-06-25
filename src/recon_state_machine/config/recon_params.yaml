@@ -1,0 +1,18 @@
+recon_state_machine_cpp:
+  ros__parameters:
+    takeoff_alt: 2.0
+    waypoint_accept_radius: 0.5
+    takeoff_timeout_s: 60.0
+    mission_timeout_s: 300.0
+    trajectory_speed: 2.0
+    min_segment_time_s: 3.0
+
+    # 按 [x1, y1, x2, y2, ...] 填写，单位为米。
+    # 这些是 MAVROS 本地 ENU 坐标系下的绝对坐标，不是相对位移。
+    scan_waypoints_xy:
+      [0.0, 0.0,
+       -4.0, 52.5,
+       4.0, 52.5,
+       4.0, 57.5,
+       -4.0, 57.5,
+       0.0, 55.0]

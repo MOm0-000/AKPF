@@ -12,6 +12,7 @@ QUERY_Z="${QUERY_Z:-2.00}"
 VOXEL_SIZE_M="${VOXEL_SIZE_M:-0.15}"
 LOCAL_RADIUS_M="${LOCAL_RADIUS_M:-6.0}"
 SAMPLE_STEP_M="${SAMPLE_STEP_M:-0.18}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 
 source /opt/ros/humble/setup.bash
 source "${PROJECT_DIR}/install/setup.bash"
@@ -33,7 +34,7 @@ publisher_pid="$!"
 
 sleep 1
 
-# Local FastDDS discovery in this WSL setup can lag behind process startup.
+# Local DDS discovery in this WSL setup can lag behind process startup.
 # The graph probes and one-shot echo make the demo deterministic without changing runtime nodes.
 (ros2 node list --no-daemon --spin-time 5 >/tmp/l4_mapping_node_warmup.log 2>&1 || true) &
 (ros2 topic list -t --no-daemon --spin-time 5 >/tmp/l4_mapping_topic_warmup.log 2>&1 || true) &
