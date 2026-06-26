@@ -160,6 +160,10 @@ public:
     mission_timeout_s_ = declare_parameter<double>("mission_timeout_s", 0.0);
     publish_rate_hz_ = declare_parameter<double>("publish_rate_hz", 20.0);
     use_stamped_cmd_vel_ = declare_parameter<bool>("use_stamped_cmd_vel", true);
+    stamped_cmd_vel_topic_ = declare_parameter<std::string>(
+        "stamped_cmd_vel_topic", "/mavros/setpoint_velocity/cmd_vel");
+    unstamped_cmd_vel_topic_ = declare_parameter<std::string>(
+        "unstamped_cmd_vel_topic", "/mavros/setpoint_velocity/cmd_vel_unstamped");
     distance_source_ = declare_parameter<std::string>("distance_source", "truth_geometry");
     perception_cloud_topic_ = declare_parameter<std::string>("perception_cloud_topic", "/l4/local_cloud");
     perception_stale_timeout_s_ = declare_parameter<double>("perception_stale_timeout_s", 1.0);
@@ -213,6 +217,8 @@ public:
     recovery_climb_speed_ = declare_parameter<double>("recovery_climb_speed", 0.12);
     recovery_exit_d_eff_ = declare_parameter<double>("recovery_exit_d_eff", 0.85);
     recovery_exit_path_margin_ = declare_parameter<double>("recovery_exit_path_margin", 0.15);
+    recovery_clear_exit_d_eff_ = declare_parameter<double>(
+        "recovery_clear_exit_d_eff", repulse_influence_ + candidate_comfort_margin_);
     recovery_min_duration_s_ = declare_parameter<double>("recovery_min_duration_s", 3.0);
 
     if (recovery_exit_d_eff_ < emergency_d_eff_) {
@@ -222,6 +228,7 @@ public:
           recovery_exit_d_eff_, emergency_d_eff_);
       recovery_exit_d_eff_ = emergency_d_eff_;
     }
+    recovery_clear_exit_d_eff_ = std::max(recovery_clear_exit_d_eff_, recovery_exit_d_eff_);
     recovery_min_duration_s_ = std::max(0.0, recovery_min_duration_s_);
 
     if (publish_rate_hz_ < 10.0) {
@@ -257,9 +264,9 @@ public:
 
     auto velocity_qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort().durability_volatile();
     stamped_velocity_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
-        "/mavros/setpoint_velocity/cmd_vel", velocity_qos);
+        stamped_cmd_vel_topic_, velocity_qos);
     unstamped_velocity_pub_ = create_publisher<geometry_msgs::msg::Twist>(
-        "/mavros/setpoint_velocity/cmd_vel_unstamped", velocity_qos);
+        unstamped_cmd_vel_topic_, velocity_qos);
 
     arming_cli_ = create_client<mavros_msgs::srv::CommandBool>("/mavros/cmd/arming");
     set_mode_cli_ = create_client<mavros_msgs::srv::SetMode>("/mavros/set_mode");
@@ -289,6 +296,10 @@ public:
                 distance_source_.c_str(), perception_cloud_topic_.c_str(),
                 yes_no(perception_fallback_to_truth_));
     RCLCPP_INFO(get_logger(), "MAVROS position topics: odom=%s pose=%s", odom_topic_.c_str(), pose_topic_.c_str());
+    RCLCPP_INFO(
+        get_logger(), "Velocity output topics: stamped=%s unstamped=%s use_stamped=%s",
+        stamped_cmd_vel_topic_.c_str(), unstamped_cmd_vel_topic_.c_str(),
+        yes_no(use_stamped_cmd_vel_));
   }
 
 private:
@@ -628,13 +639,14 @@ private:
         recovery_active_ = false;
       } else if (last_d_eff_ > recovery_exit_d_eff_ &&
                  recovery_elapsed >= recovery_min_duration_s_ &&
-                 recovery_exit_margin >= recovery_exit_path_margin_) {
+                 (recovery_exit_margin >= recovery_exit_path_margin_ ||
+                  last_d_eff_ >= recovery_clear_exit_d_eff_)) {
         recovery_active_ = false;
         RCLCPP_INFO(
             get_logger(),
-            "Leaving perception recovery: nearest=%s %.2f m d_eff=%.2f path_margin=%.2f elapsed=%.1fs",
+            "Leaving perception recovery: nearest=%s %.2f m d_eff=%.2f path_margin=%.2f clear_exit=%.2f elapsed=%.1fs",
             nearest.obstacle_name.c_str(), nearest.signed_distance, last_d_eff_,
-            recovery_exit_margin, recovery_elapsed);
+            recovery_exit_margin, recovery_clear_exit_d_eff_, recovery_elapsed);
       }
     }
 
@@ -1343,6 +1355,8 @@ private:
   std::string perception_cloud_topic_{"/l4/local_cloud"};
   std::string odom_topic_{"/mavros/local_position/local"};
   std::string pose_topic_{"/mavros/local_position/pose"};
+  std::string stamped_cmd_vel_topic_{"/mavros/setpoint_velocity/cmd_vel"};
+  std::string unstamped_cmd_vel_topic_{"/mavros/setpoint_velocity/cmd_vel_unstamped"};
   double perception_stale_timeout_s_{1.0};
   bool perception_fallback_to_truth_{true};
   int perception_min_points_{10};
@@ -1396,6 +1410,7 @@ private:
   double recovery_climb_speed_{0.12};
   double recovery_exit_d_eff_{0.85};
   double recovery_exit_path_margin_{0.15};
+  double recovery_clear_exit_d_eff_{1.70};
   double recovery_min_duration_s_{3.0};
 
   mavros_msgs::msg::State current_state_;

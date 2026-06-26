@@ -22,7 +22,7 @@
 - 选择 ArduPilot，放弃 PX4；
 - 使用 ArduPilot `GUIDED` 模式，不使用 PX4 `OFFBOARD` 模式；
 - `COD` conda 环境只用于解析文件，不用于运行代码、训练或仿真；
-- 当前阶段只规划，不写实现代码。
+- 本文档只描述工程路线和验收边界，具体实现与复现命令见各层级文档、`src/` 和 `scripts/`。
 
 ---
 
@@ -35,6 +35,7 @@ L0  固化现有基线
 L1  ArduPilot 速度控制闭环
 L2  室内仿真场景与实验协议
 L3  真值几何 AKPF 非学习版
+L3.5 进阶真值几何压力测试
 L4  点云/局部地图 AKPF
 L5  Safety Shield 安全层
 L6  简化环境强化学习
@@ -52,6 +53,18 @@ L9  系统实验、消融与论文固化
 - L9 是论文闭环层。
 
 不要跳层。每一层没有通过验收，就不要进入下一层。
+
+当前工程进度：
+
+```text
+L0-L2 已完成；
+L3 真值几何 AKPF 已完成，S1-S5 已完成验收；
+L3.5 进阶真值几何压力测试已完成，S6/S8/S9 已通过；
+L4.3 感知版 AKPF 已完成，S1-S5 已通过；
+L5 Safety Shield 初版已接入 L4.3 感知链路，S1-S5 已通过；
+S7_table_chair_room 和 S10_perception_degradation 延后到 L6/L7 前后；
+下一步进入 L6 简化环境强化学习。
+```
 
 ---
 
@@ -451,15 +464,16 @@ d_eff = d - d_brake - d_delay - r_body - margin
 - 窄门入口左右摆动减少；
 - `Control Jitter` 下降。
 
-#### L3.5：气动代理风险
+#### L3.5：气动代理风险与进阶几何压力测试
 
-加入近墙、近地、近桌面风险项，但先只影响引导或惩罚，不做扰动。
+加入近墙、近地、近桌面风险项，但先只影响引导或惩罚，不做扰动。随后用更复杂的真值几何场景做压力测试，确认通用局部目标和候选速度选择不是只在简单场景中偶然通过。
 
 验收：
 
 - 靠墙飞行时保持更大距离；
 - 贴地/贴桌面飞行减少；
-- 不造成过度保守。
+- 不造成过度保守；
+- 在 S6/S8/S9 中验证局部目标切换、高度约束和多转角脱困。
 
 ### 验收标准
 
@@ -470,6 +484,22 @@ d_eff = d - d_brake - d_delay - r_body - margin
 - S3 走廊不撞墙；
 - S4 不贴桌面；
 - S5 墙角不陷入局部极小。
+
+### 当前 L3 状态
+
+截至 2026-06-14，L3 已完成真值几何 AKPF 节点，并通过：
+
+```text
+S1_single_front_obstacle
+S2_narrow_gate
+S3_corridor
+S4_table_or_low_obstacle
+S5_corner
+```
+
+当前 L3 的修正原则是通用化处理：房间边界墙统一纳入障碍物距离查询，AKPF 输出后用局部候选速度评分选择方向；当直达目标的线段被膨胀障碍物挡住时，自动从障碍物膨胀角点生成几何局部目标；进入目标终端区后提高目标方向权重、适度软化斥力。没有使用 S1 或 S5 专用局部目标点或固定绕行路线。
+
+S1-S5 已经作为 L3 基础场景关闭。后续不再继续在 L3 中堆更多真值几何特例，而是用 L3.5 做进入 L4 前的进阶压力测试。
 
 ### 风险
 
@@ -486,6 +516,62 @@ d_eff = d - d_brake - d_delay - r_body - margin
 - 不做 RL；
 - 不做气动扰动注入；
 - 不追求最优路径。
+
+---
+
+
+## L3.5：进阶真值几何压力测试
+
+### 目标
+
+在进入点云/局部地图之前，用更复杂但仍可控的真值几何场景压测 AKPF，确认当前非学习版算法不是只在 S1-S5 的简单几何中偶然通过。
+
+### 为什么不直接做 S7/S10
+
+S7_table_chair_room 更接近桌椅、小物体和局部遮挡问题，S10_perception_degradation 本身就是感知退化问题。它们应该在 L4 有点云/局部地图输入、L5 有安全层之后再做，否则仍然只是把真实问题手工写进真值几何列表。
+
+### 已验收场景
+
+```text
+S6_cluttered_boxes
+S8_vertical_constraint
+S9_multi_corner
+```
+
+### 本层验证重点
+
+- S6：多障碍交错，检查局部目标切换和净空保持；
+- S8：低顶板/高度约束，检查高度控制和近障碍风险；
+- S9：多转角，检查局部极小、停滞检测和局部目标保持。
+
+### 通用修正
+
+L3.5 中继续坚持不写场景专用路线。当前采用的泛化修正是：
+
+```text
+1. 保持仍能推进全局目标的局部目标，避免频繁丢弃；
+2. 当局部目标方向本身预测安全时，优先沿 AKPF 场方向前进；
+3. 只有在局部场方向不安全时，才进入候选速度评分；
+4. 进度停滞时强制重新生成局部目标。
+```
+
+### 当前结果
+
+```text
+S6_cluttered_boxes：goal_dist=0.48, min_clearance=0.81，通过；
+S8_vertical_constraint：goal_dist=0.48, min_clearance=0.57，通过；
+S9_multi_corner：goal_dist=0.48, min_clearance=0.58，通过。
+```
+
+详细命令与日志见：
+
+```text
+L3_5_进阶真值几何AKPF压力测试复现教程.md
+```
+
+### 本层结论
+
+L3/L3.5 已经足够支撑进入 L4。后续真实应用中的关键问题不再是继续扩写真值障碍物列表，而是把障碍物距离、法向和局部可通行空间从传感器/地图中估计出来。
 
 ---
 
@@ -591,6 +677,35 @@ AKPF 查询：20-50 Hz
 - 不做大规模随机地图；
 - 不做复杂语义理解；
 - 不追求全局建图。
+
+### 当前 L4 状态
+
+截至 2026-06-14，L4.1 已完成最小点云局部地图链路：
+
+```text
+PointCloud2
+  -> local crop
+  -> voxel downsample
+  -> nearest point query
+  -> distance and rough normal
+```
+
+新增产物：
+
+```text
+src/l4_perception_mapping
+scripts/run_l4_mapping_demo.sh
+L4_点云局部地图AKPF复现教程.md
+L4_点云局部地图验收记录.md
+```
+
+当前验收结果：
+
+```text
+S1 合成点云：input=9078, local=5022, nearest=0.66 m，通过。
+```
+
+注意：截至 2026-06-25，L4.3 已完成 Gazebo 深度相机点云到 MAVROS local ENU 的完整链路验证。Gazebo 能发布 `/l4/depth_camera/points`，项目内 `l4_gz_pointcloud_bridge_node` 将 `gz.msgs.PointCloudPacked` 抽样重打包为轻量 XYZ `PointCloud2`；`l4_pointcloud_mapper_node` 维护 90 秒局部体素记忆并发布 `/l4/local_cloud`、`/l4/nearest_distance`、`/l4/nearest_point`、`/l4/nearest_normal`；L3 AKPF 支持 `truth_geometry` / `perception_map` 两种距离来源。按 `L4_3_相机点云到MAVROS局部坐标验证教程.md` 复现，S1-S5 均已到达目标，并已支撑 L5 Safety Shield 初版接入验证。
 
 ---
 
@@ -1198,4 +1313,3 @@ L1：验证 MAVROS velocity setpoint 是否能稳定控制 ArduPilot
 ```
 
 这两层完成后，AKPF 才有可靠的工程落点。
-

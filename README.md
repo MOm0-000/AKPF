@@ -1,6 +1,6 @@
 # AKPF
 
-AKPF 是一个基于 ArduPilot 的无人机仿真与避障研究工程。当前仓库聚焦于从基础仿真链路到室内场景协议的逐层落地，为后续风险势场、强化学习避障和安全屏蔽实验提供可复现工程基础。
+AKPF 是一个基于 ArduPilot 的无人机仿真与避障研究工程。当前仓库已完成从基础仿真链路、室内场景协议、真值几何 AKPF 到 L4 感知点云局部地图 AKPF 的逐层落地，并已完成 L5 Safety Shield 初版接入验证。
 
 ## 当前技术栈
 
@@ -13,6 +13,10 @@ MAVROS2
 ```
 
 当前项目选择 ArduPilot 。
+
+## 工程注意事项
+
+MAVROS local 坐标不能默认把 `{0,0}` 当作起飞点。仿真中 EKF origin、模型生成点和起飞点通常接近重合，但真机/RTK 中 EKF origin 可能来自首次稳定定位时刻，不一定等于解锁起飞位置。后续真机任务应在起飞前后捕获 `mission_origin`，所有航点和高度判断使用相对起飞点坐标；ROS/MAVROS local 侧按 ENU 理解，若要相对机头飞行还需要记录起飞 yaw 并做旋转。同时必须把 GUIDED/ARM、EKF/GPS/罗盘健康问题和软件原点假设分开排查。
 
 ## 已完成层级
 
@@ -124,7 +128,19 @@ L3_5_进阶真值几何AKPF压力测试复现教程.md
 
 ### L4：点云/局部地图 AKPF
 
-已完成 L4.1 最小点云局部地图链路：`PointCloud2 -> 局部裁剪 -> voxel 降采样 -> 最近点距离 -> 粗法向`。L4.2 已补齐 Gazebo 深度相机模型、L4 专用 world、Gazebo 点云 topic 检查脚本和 bridge/mapper 启动脚本；当前 `ros_gz_bridge` 已安装，bridge 脚本已可启动；完整 Gazebo 多终端仿真验证按教程由用户执行。
+已完成 L4.3 感知版 AKPF 链路：Gazebo 深度相机点云进入 ROS2 后，由项目内 bridge 转为轻量 XYZ `PointCloud2`，`l4_pointcloud_mapper_node` 维护局部体素记忆并发布 `/l4/local_cloud`、`/l4/nearest_distance`、`/l4/nearest_point`、`/l4/nearest_normal`，L3 AKPF 可通过 `distance_source:=perception_map` 使用感知局部地图替代真值几何距离。
+
+L4.3 已在 S1-S5 基础场景完成多终端 Gazebo + SITL + MAVROS + bridge + mapper + AKPF 验证。当前修正保持通用化：局部体素记忆、候选速度安全裕度、恢复模式迟滞和切向恢复不绑定任何单一场景。
+
+验收结果：
+
+```text
+S1_single_front_obstacle:  GOAL pos=(4.06, 0.45, 2.03), goal_dist=0.47, min_clearance=0.79
+S2_narrow_gate:           GOAL pos=(3.79, -0.28, 2.01), goal_dist=0.50, min_clearance=0.81
+S3_corridor:              GOAL pos=(3.71, -0.00, 2.01), goal_dist=0.49, min_clearance=1.01
+S4_table_or_low_obstacle: GOAL pos=(3.72, 0.02, 2.05), goal_dist=0.48, min_clearance=1.22
+S5_corner:                GOAL pos=(3.32, 2.63, 2.00), goal_dist=0.48, min_clearance=0.75
+```
 
 核心文件：
 
@@ -132,10 +148,10 @@ L3_5_进阶真值几何AKPF压力测试复现教程.md
 src/l4_perception_mapping
 models/iris_with_l4_depth_camera
 worlds/l4/S1_depth_camera.sdf
-scripts/run_l4_mapping_demo.sh
-scripts/start_l4_depth_world.sh
-scripts/start_l4_pointcloud_bridge.sh
-scripts/run_l4_gazebo_mapper.sh
+worlds/l4/S2_depth_camera.sdf
+worlds/l4/S3_depth_camera.sdf
+worlds/l4/S4_depth_camera.sdf
+worlds/l4/S5_depth_camera.sdf
 ```
 
 参考文档：
@@ -143,7 +159,34 @@ scripts/run_l4_gazebo_mapper.sh
 ```text
 L4_点云局部地图AKPF复现教程.md
 L4_2_Gazebo深度相机点云桥接验证教程.md
+L4_3_相机点云到MAVROS局部坐标验证教程.md
 L4_点云局部地图验收记录.md
+```
+
+### L5：Safety Shield 安全层
+
+已完成第一版独立 ROS2 节点 `l5_safety_shield`，用于接收 L3/L4 导航层 raw velocity，根据最近障碍距离、最近点法向、飞控状态和高度约束做统一安全裁剪，再发布到 MAVROS 速度 setpoint。L5 已接入 L4.3 感知版 AKPF，S1-S5 均已通过。
+
+验收结果：
+
+```text
+S1_single_front_obstacle:  GOAL pos=(4.04, 0.45, 2.03), goal_dist=0.48, min_clearance=0.79
+S2_narrow_gate:           GOAL pos=(3.79, -0.25, 2.02), goal_dist=0.48, min_clearance=0.79
+S3_corridor:              GOAL pos=(3.71, 0.00, 2.01), goal_dist=0.49, min_clearance=1.01
+S4_table_or_low_obstacle: GOAL pos=(3.74, 0.02, 2.04), goal_dist=0.46, min_clearance=1.21
+S5_corner:                GOAL pos=(3.32, 2.63, 2.00), goal_dist=0.48, min_clearance=0.78
+```
+
+核心文件：
+
+```text
+src/l5_safety_shield
+```
+
+参考文档：
+
+```text
+L5_SafetyShield安全层复现教程.md
 ```
 
 ## 目录结构
@@ -173,4 +216,4 @@ cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
 ArduPilot_AKPF_工程实施路线.md
 ```
 
-接下来的打算：按 `L4_2_Gazebo深度相机点云桥接验证教程.md` 安装 `ros_gz_bridge` 并完成 Gazebo 点云桥接验证；验证通过后进入 L4.3，做相机点云到 MAVROS local ENU 的坐标变换，再替换 L3 真值几何距离。
+接下来的打算：基于 L4/L5 的可复现仿真链路继续进入后续强化学习与策略部署阶段。
