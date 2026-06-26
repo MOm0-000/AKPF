@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>l7_policy_deployment</name>
+  <version>0.1.0</version>
+  <description>ROS2 deployment node for L6 AKPF policies through L5 Safety Shield and MAVROS.</description>
+  <maintainer email="user@example.com">ld666</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>ament_cmake_python</build_depend>
+
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>l6_rl_training</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

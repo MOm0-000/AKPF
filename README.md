@@ -1,6 +1,6 @@
 # AKPF
 
-AKPF 是一个基于 ArduPilot 的无人机仿真与避障研究工程。当前仓库已完成从基础仿真链路、室内场景协议、真值几何 AKPF 到 L4 感知点云局部地图 AKPF 的逐层落地，并已完成 L5 Safety Shield 初版接入验证。
+AKPF 是一个基于 ArduPilot 的无人机仿真与避障研究工程。当前仓库已完成从基础仿真链路、室内场景协议、真值几何 AKPF、L4 感知点云局部地图 AKPF、L5 Safety Shield、L6 简化环境强化学习到 L7 ROS2/Gazebo 策略部署的一轮闭环验证。
 
 ## 当前技术栈
 
@@ -189,6 +189,60 @@ src/l5_safety_shield
 L5_SafetyShield安全层复现教程.md
 ```
 
+### L6：简化环境强化学习
+
+已完成第一版轻量训练闭环：`l6_rl_training` 提供二维定高 Gym-style 环境、S1-S5 抽象几何、baseline/AKPF/full 观测、L5 风格速度裁剪、自包含 PyTorch PPO 入口和策略评估入口。
+
+当前第一阶段使用 AKPF 观测、Safety Shield 和 L3 风格 teacher 行为克隆 warm-start，导出策略后在 S1-S5 简化环境中每个场景评估 10 次均通过：
+
+```text
+S1_single_front_obstacle:  success=1.00, mean_goal_dist=0.4731, mean_min_clearance=0.5688
+S2_narrow_gate:           success=1.00, mean_goal_dist=0.4721, mean_min_clearance=0.6588
+S3_corridor:              success=1.00, mean_goal_dist=0.4581, mean_min_clearance=1.0706
+S4_table_or_low_obstacle: success=1.00, mean_goal_dist=0.4621, mean_min_clearance=1.1873
+S5_corner:                success=1.00, mean_goal_dist=0.4510, mean_min_clearance=0.5994
+```
+
+核心文件：
+
+```text
+src/l6_rl_training
+```
+
+参考文档：
+
+```text
+L6_简化环境强化学习复现教程.md
+```
+
+### L7：ROS2/Gazebo 策略部署
+
+已完成第一版 ROS2 策略部署节点 `l7_policy_deployment`。该节点加载 L6 导出的 `policy.pt`，订阅 MAVROS local odom/pose，捕获 `mission_origin` 后按相对起飞点坐标编码 AKPF 观测，执行策略推理，并把 raw velocity 发布到 `/l5/raw_cmd_vel`，继续由 L5 Safety Shield 输出到 MAVROS。
+
+当前已完成 ROS2 合成冒烟和 Gazebo S1-S5 一轮部署验证。每个场景验证结束后均清理 Gazebo、SITL、MAVProxy、MAVROS、bridge、mapper、shield、policy node 相关进程，并确认残留计数为 0。
+
+验收结果：
+
+```text
+S1_single_front_obstacle:  GOAL pos=(4.29, 0.45, 2.00), goal_dist=0.46
+S2_narrow_gate:           GOAL pos=(3.73, 0.14, 2.00), goal_dist=0.49
+S3_corridor:              GOAL pos=(3.75, 0.05, 2.00), goal_dist=0.46
+S4_table_or_low_obstacle: GOAL pos=(3.74, -0.08, 2.00), goal_dist=0.47
+S5_corner:                GOAL pos=(3.35, 2.56, 2.00), goal_dist=0.46
+```
+
+核心文件：
+
+```text
+src/l7_policy_deployment
+```
+
+参考文档：
+
+```text
+L7_ROS2_Gazebo策略部署复现教程.md
+```
+
 ## 目录结构
 
 ```text
@@ -216,4 +270,4 @@ cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
 ArduPilot_AKPF_工程实施路线.md
 ```
 
-接下来的打算：基于 L4/L5 的可复现仿真链路继续进入后续强化学习与策略部署阶段。
+接下来的打算：继续 L6 的 PPO 长训、baseline 对比和训练曲线统计；同时在 L7 中补充 Gazebo S1-S5 多次重复实验、Shield 激活次数和推理频率统计。

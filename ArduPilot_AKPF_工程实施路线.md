@@ -62,8 +62,10 @@ L3 真值几何 AKPF 已完成，S1-S5 已完成验收；
 L3.5 进阶真值几何压力测试已完成，S6/S8/S9 已通过；
 L4.3 感知版 AKPF 已完成，S1-S5 已通过；
 L5 Safety Shield 初版已接入 L4.3 感知链路，S1-S5 已通过；
+L6 简化环境强化学习第一版已完成，AKPF+Shield warm-start 策略在简化 S1-S5 中已通过；
+L7 ROS2 策略部署节点第一版已完成，已通过不启动 Gazebo 的 ROS2 合成冒烟，并已完成 Gazebo S1-S5 一轮部署验证；
 S7_table_chair_room 和 S10_perception_degradation 延后到 L6/L7 前后；
-下一步进入 L6 简化环境强化学习。
+下一步继续 L6 PPO 长训、baseline 对比、训练曲线统计，并在 L7 中补充多次重复实验和 Shield 激活统计。
 ```
 
 ---
@@ -990,6 +992,22 @@ velocity publish: 50 Hz
 - 不做气动扰动；
 - 不追求论文最终成绩；
 - 不上实机。
+
+### 当前 L7 状态
+
+截至 2026-06-26，L7 第一版已完成 ROS2/Gazebo 部署链路验证。`l7_policy_node` 加载 L6 导出的 `/tmp/l6_akpf_bc_pass/policy.pt`，使用 MAVROS local odom/pose 捕获 `mission_origin`，按相对起飞点坐标编码 AKPF 观测，在线推理后发布 raw velocity 到 `/l5/raw_cmd_vel`，再由 L5 Safety Shield 裁剪并输出 MAVROS 速度 setpoint。
+
+Gazebo S1-S5 一轮部署验证结果：
+
+```text
+S1_single_front_obstacle:  GOAL pos=(4.29, 0.45, 2.00), goal_dist=0.46
+S2_narrow_gate:           GOAL pos=(3.73, 0.14, 2.00), goal_dist=0.49
+S3_corridor:              GOAL pos=(3.75, 0.05, 2.00), goal_dist=0.46
+S4_table_or_low_obstacle: GOAL pos=(3.74, -0.08, 2.00), goal_dist=0.47
+S5_corner:                GOAL pos=(3.35, 2.56, 2.00), goal_dist=0.46
+```
+
+每个场景验证结束后均清理 Gazebo、SITL、MAVProxy、MAVROS、bridge、mapper、shield、policy node 相关进程，并确认残留计数为 0。
 
 ---
 
