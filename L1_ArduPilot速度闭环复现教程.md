@@ -22,6 +22,41 @@ MAVROS2
 
 ---
 
+## 快速开始（推荐）
+
+首次运行或代码更新后先编译：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+source /opt/ros/humble/setup.bash
+colcon build --packages-select l1_velocity_control
+```
+
+随后一条命令打开 4 个终端：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l1_velocity_terminals.sh
+```
+
+脚本会依次启动 Gazebo runway GUI、ArduPilot SITL、MAVROS 和 L1 速度状态机。终端 2 保持使用：
+
+```bash
+cd ~/ardupilot/Tools/autotest
+python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
+```
+
+L1 状态机退出后，脚本默认等待 15 秒并清理本次相关进程和终端窗口。常用参数：
+
+```bash
+bash scripts/open_l1_velocity_terminals.sh --sitl-delay 45
+bash scripts/open_l1_velocity_terminals.sh --no-auto-cleanup
+bash scripts/open_l1_velocity_terminals.sh --cleanup-only
+bash scripts/open_l1_velocity_terminals.sh --dry-run --no-cleanup
+```
+
+后文的逐终端命令保留为排错入口。
+
 ## 1. 文件说明
 
 L1 新增文件位于：
@@ -78,7 +113,7 @@ scripts/run_l1_velocity.sh
 
 ---
 
-## 3. 终端准备
+## 3. 手动逐终端验证（排错用）
 
 建议打开 4 个 Ubuntu 终端：
 

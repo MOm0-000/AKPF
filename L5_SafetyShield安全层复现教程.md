@@ -8,6 +8,50 @@ Safety Shield 不依赖 AKPF 是否聪明；后续 RL、MPC 或人工输入速�
 
 ---
 
+## 快速开始（推荐）
+
+首次运行或代码更新后先编译：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+colcon build --packages-select l3_akpf_navigation l4_perception_mapping l5_safety_shield --symlink-install
+```
+
+随后用一条命令打开 L5 的 7 个终端：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l5_shield_terminals.sh S1
+```
+
+可选场景：
+
+```bash
+bash scripts/open_l5_shield_terminals.sh S2
+bash scripts/open_l5_shield_terminals.sh S3
+bash scripts/open_l5_shield_terminals.sh S4
+bash scripts/open_l5_shield_terminals.sh S5
+```
+
+脚本会依次打开 Gazebo GUI、ArduPilot SITL、MAVROS、L4 bridge、L4 mapper、L5 Shield 和经 Shield 的感知版 AKPF。终端 2 保持使用：
+
+```bash
+cd ~/ardupilot/Tools/autotest
+python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
+```
+
+AKPF 节点退出后，脚本默认等待 15 秒清理本次相关进程和终端窗口。常用排错参数：
+
+```bash
+bash scripts/open_l5_shield_terminals.sh S5 --no-auto-cleanup
+bash scripts/open_l5_shield_terminals.sh --cleanup-only
+bash scripts/open_l5_shield_terminals.sh S5 --dry-run --no-cleanup
+```
+
+后文保留逐终端命令，用于单独检查 Shield 输入、输出和状态话题。
+
 ## 1. 当前结论
 
 已完成：
@@ -65,7 +109,7 @@ l5_safety_shield l5_safety_shield_node
 
 ---
 
-## 3. 接入 L4.3 多终端链路
+## 3. 手动接入 L4.3 多终端链路（排错用）
 
 终端 1-5 仍按 `L4_3_相机点云到MAVROS局部坐标验证教程.md` 启动：
 

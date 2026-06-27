@@ -6,6 +6,41 @@
 
 ---
 
+## 快速开始（推荐）
+
+在 `ld666` 中进入项目目录后，一条命令打开 L0 需要的 4 个终端：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l0_baseline_terminals.sh
+```
+
+脚本会依次打开：
+
+```text
+终端 1：Gazebo runway GUI
+终端 2：ArduPilot SITL
+终端 3：MAVROS
+终端 4：~/ws_offboard 的 offb_node 状态机
+```
+
+终端 2 保持使用：
+
+```bash
+cd ~/ardupilot/Tools/autotest
+python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
+```
+
+`offb_node` 退出后，脚本默认等待 15 秒并清理本次 Gazebo、SITL、MAVROS 和终端窗口。调试时可用：
+
+```bash
+bash scripts/open_l0_baseline_terminals.sh --no-auto-cleanup
+bash scripts/open_l0_baseline_terminals.sh --cleanup-only
+bash scripts/open_l0_baseline_terminals.sh --dry-run --no-cleanup
+```
+
+后文保留原始逐终端记录，主要用于排错和核对关键日志。
+
 ## 1. 环境确认
 
 当前环境：
@@ -27,7 +62,7 @@
 
 ---
 
-## 2. 启动命令
+## 2. 手动逐终端启动命令（排错用）
 
 ### 终端 1：Gazebo
 
@@ -462,4 +497,3 @@ L0 主要遗留问题不是飞行链路本身，而是工程稳定性：
 - 重复运行状态机的启动等待不够可控。
 
 这些问题应在 L1 速度控制桥接层中优先解决。
-

@@ -16,6 +16,52 @@ MAVROS2
 
 ---
 
+## 快速开始（推荐）
+
+首次运行或代码更新后先编译：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+source /opt/ros/humble/setup.bash
+colcon build --packages-select l3_akpf_navigation
+```
+
+随后用一条命令打开 L3 的 4 个终端：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l3_akpf_terminals.sh S1
+```
+
+可选场景：
+
+```bash
+bash scripts/open_l3_akpf_terminals.sh S2
+bash scripts/open_l3_akpf_terminals.sh S3
+bash scripts/open_l3_akpf_terminals.sh S4
+bash scripts/open_l3_akpf_terminals.sh S5
+bash scripts/open_l3_akpf_terminals.sh S6
+bash scripts/open_l3_akpf_terminals.sh S8
+bash scripts/open_l3_akpf_terminals.sh S9
+```
+
+脚本会依次打开 Gazebo GUI、ArduPilot SITL、MAVROS 和 L3 AKPF 节点。终端 2 保持使用：
+
+```bash
+cd ~/ardupilot/Tools/autotest
+python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
+```
+
+L3 节点退出后，脚本默认等待 15 秒清理本次相关进程和终端窗口。常用排错参数：
+
+```bash
+bash scripts/open_l3_akpf_terminals.sh S5 --no-auto-cleanup
+bash scripts/open_l3_akpf_terminals.sh --cleanup-only
+bash scripts/open_l3_akpf_terminals.sh S5 --dry-run --no-cleanup
+```
+
+后文保留逐终端命令，用于检查 MAVROS、AKPF 参数和场景日志。
+
 ## 1. L3 做什么
 
 L3 的输入：
@@ -182,7 +228,7 @@ Waiting deps: state=no odom=no arming=no set_mode=no takeoff=no land=no
 
 ---
 
-## 6. S1 实飞复现
+## 6. 手动逐终端实飞复现（排错用）
 
 建议打开 4 个终端：
 

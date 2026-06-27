@@ -4,9 +4,53 @@
 
 本文目标：在 L4.2 Gazebo 深度相机点云已经能进入 ROS2 后，把相机坐标系点云转换到 MAVROS local ENU 坐标系，并让 L3 AKPF 可以选择 `perception_map` 作为最近障碍距离来源。
 
-本文以多终端命令行为主，不再为 L4.3 额外包装启动脚本。Gazebo 必须保持可视化，方便用户亲眼观察仿真结果。
+本文现在推荐先用一键多终端脚本快速复现，再用后文逐终端命令排错。Gazebo 必须保持可视化，方便用户亲眼观察仿真结果；手动或脚本启动都不要给 Gazebo 加 `-s`。
 
 ---
+
+## 快速开始（推荐）
+
+首次运行或代码更新后先编译：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+colcon build --packages-select l1_velocity_control l3_akpf_navigation l4_perception_mapping
+```
+
+随后用一条命令打开 L4.3 的 6 个终端：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l4_3_perception_terminals.sh S1
+```
+
+可选场景：
+
+```bash
+bash scripts/open_l4_3_perception_terminals.sh S2
+bash scripts/open_l4_3_perception_terminals.sh S3
+bash scripts/open_l4_3_perception_terminals.sh S4
+bash scripts/open_l4_3_perception_terminals.sh S5
+```
+
+脚本会依次打开 Gazebo GUI、ArduPilot SITL、MAVROS、Gazebo 点云 bridge、local-frame mapper 和感知版 AKPF。终端 2 保持使用：
+
+```bash
+cd ~/ardupilot/Tools/autotest
+python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
+```
+
+AKPF 节点退出后，脚本默认等待 15 秒清理本次相关进程和终端窗口。常用排错参数：
+
+```bash
+bash scripts/open_l4_3_perception_terminals.sh S5 --no-auto-cleanup
+bash scripts/open_l4_3_perception_terminals.sh --cleanup-only
+bash scripts/open_l4_3_perception_terminals.sh S5 --dry-run --no-cleanup
+```
+
+后文保留逐终端命令，用于单独检查点云、bridge、mapper 和 AKPF。
 
 ## 1. 当前结论
 
@@ -88,7 +132,7 @@ l3_akpf_navigation l3_akpf_node
 
 ---
 
-## 3. L4.3 多终端验证顺序
+## 3. L4.3 手动逐终端验证顺序（排错用）
 
 ### 终端 1：启动可视化 Gazebo
 
@@ -322,5 +366,5 @@ L4.3 当前还不是最终“感知版 AKPF 成果表”，它只是把感知距
 ```text
 1. 多次复测 S1-S5，统计 goal_dist、min_clearance、恢复模式触发次数；
 2. 评估是否把 enable_local_target 改为点云局部目标，而不是使用真值几何局部目标；
-3. 再进入 L5 Safety Shield。
+3. 进入 `L5_SafetyShield安全层复现教程.md`，把 L3 raw velocity 先接入独立 Safety Shield。
 ```

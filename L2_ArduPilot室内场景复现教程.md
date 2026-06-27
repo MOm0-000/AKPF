@@ -25,6 +25,47 @@ MAVROS2
 
 ---
 
+## 快速开始（推荐）
+
+先确认 L1 已编译。随后在 `ld666` 中运行：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l2_scene_terminals.sh S1
+```
+
+场景可替换为：
+
+```bash
+bash scripts/open_l2_scene_terminals.sh S2
+bash scripts/open_l2_scene_terminals.sh S3
+bash scripts/open_l2_scene_terminals.sh S4
+bash scripts/open_l2_scene_terminals.sh S5
+```
+
+脚本会打开 Gazebo GUI、ArduPilot SITL、MAVROS 和 L1 速度状态机，用同一套速度闭环验证指定室内场景。终端 2 保持使用：
+
+```bash
+cd ~/ardupilot/Tools/autotest
+python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
+```
+
+任务结束后默认等待 15 秒清理本次相关进程和窗口。只做 SDF 快速检查时仍使用：
+
+```bash
+bash scripts/check_l2_worlds.sh
+```
+
+常用排错参数：
+
+```bash
+bash scripts/open_l2_scene_terminals.sh S5 --no-auto-cleanup
+bash scripts/open_l2_scene_terminals.sh --cleanup-only
+bash scripts/open_l2_scene_terminals.sh S5 --dry-run --no-cleanup
+```
+
+后文保留文件检查和逐终端命令，主要用于定位场景加载、MAVROS 或速度状态机问题。
+
 ## 1. 文件说明
 
 L2 文件位于：
@@ -86,7 +127,7 @@ scripts/check_l2_worlds.sh
 
 ---
 
-## 3. 终端准备
+## 3. 手动逐终端验证（排错用）
 
 建议打开 4 个 Ubuntu 终端：
 
@@ -320,7 +361,7 @@ World [S1_single_front_obstacle] initialized
 等待 FCU -> 切 GUIDED -> 解锁 -> 起飞 -> 速度前后左右上下测试 -> 悬停 -> 降落
 ```
 
-### 10.1 终端 1：启动 S1 Gazebo headless
+### 10.1 终端 1：启动 S1 Gazebo
 
 打开终端 1，执行：
 
@@ -335,6 +376,30 @@ unset __GLX_VENDOR_LIBRARY_NAME || true
 unset __VK_LAYER_NV_optimus || true
 
 gz sim -s -r -v3 "worlds/l2/S1_single_front_obstacle.sdf"
+```
+
+注意：上面这条命令带有 `-s`，表示只启动 Gazebo server，也就是 headless 模式，不会打开可视化窗口。这种方式适合做飞行链路和自动验收。
+
+如果你想看到 Gazebo 可视化界面，使用下面这条命令：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+./scripts/start_l2_world.sh S1_single_front_obstacle
+```
+
+或者直接去掉 `-s`：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+
+export GZ_SIM_RESOURCE_PATH="${HOME}/ardupilot_gazebo/models:${HOME}/ardupilot_gazebo/worlds:${GZ_SIM_RESOURCE_PATH:-}"
+export GZ_SIM_SYSTEM_PLUGIN_PATH="${HOME}/ardupilot_gazebo/build:${GZ_SIM_SYSTEM_PLUGIN_PATH:-}"
+export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+unset __NV_PRIME_RENDER_OFFLOAD || true
+unset __GLX_VENDOR_LIBRARY_NAME || true
+unset __VK_LAYER_NV_optimus || true
+
+gz sim -r -v3 "worlds/l2/S1_single_front_obstacle.sdf"
 ```
 
 期望看到：

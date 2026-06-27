@@ -16,6 +16,19 @@ MAVROS2
 
 ---
 
+## 快速开始（推荐）
+
+L3.5 复用 L3 的一键终端脚本：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l3_akpf_terminals.sh S6
+bash scripts/open_l3_akpf_terminals.sh S8
+bash scripts/open_l3_akpf_terminals.sh S9
+```
+
+脚本会打开 Gazebo GUI、ArduPilot SITL、MAVROS 和 L3 AKPF 节点；终端 2 保持 `sim_vehicle.py ... --map --console ... --out=udp:127.0.0.1:14550`。节点退出后默认等待 15 秒自动清理本次相关窗口和进程。后文逐终端命令保留为排错记录。
+
 ## 1. L3.5 做什么
 
 L3.5 的输入仍然是：

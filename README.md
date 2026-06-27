@@ -1,6 +1,19 @@
 # AKPF
 
-AKPF 是一个基于 ArduPilot 的无人机仿真与避障研究工程。当前仓库已完成从基础仿真链路、室内场景协议、真值几何 AKPF、L4 感知点云局部地图 AKPF、L5 Safety Shield、L6 简化环境强化学习到 L7 ROS2/Gazebo 策略部署的一轮闭环验证。
+AKPF 是一个基于 ArduPilot 的无人机仿真与避障研究工程。当前主线已经从真值几何 AKPF 逐步推进到 L7.1 点云感知策略部署：Gazebo 深度相机点云经 L4 局部地图进入 L7 policy，策略输出再经过 L5 Safety Shield 控制 ArduPilot SITL。
+
+当前已完成一轮端到端验证：
+
+```text
+Gazebo depth camera
+  -> L4 local point cloud/map
+  -> L7.1 perception policy
+  -> L5 Safety Shield
+  -> MAVROS velocity setpoint
+  -> ArduPilot SITL
+```
+
+S1-S5 固定场景均已 `goal_reached`。这条链路的避障输入来自 `/l4/local_cloud`、`/l4/nearest_distance`、`/l4/nearest_normal`，不是 `SCENARIOS` 中的障碍物真值几何。
 
 ## 当前技术栈
 
@@ -12,11 +25,33 @@ ArduPilot SITL / ArduCopter
 MAVROS2
 ```
 
-当前项目选择 ArduPilot 。
+当前项目选择 ArduPilot。
 
 ## 工程注意事项
 
 MAVROS local 坐标不能默认把 `{0,0}` 当作起飞点。仿真中 EKF origin、模型生成点和起飞点通常接近重合，但真机/RTK 中 EKF origin 可能来自首次稳定定位时刻，不一定等于解锁起飞位置。后续真机任务应在起飞前后捕获 `mission_origin`，所有航点和高度判断使用相对起飞点坐标；ROS/MAVROS local 侧按 ENU 理解，若要相对机头飞行还需要记录起飞 yaw 并做旋转。同时必须把 GUIDED/ARM、EKF/GPS/罗盘健康问题和软件原点假设分开排查。
+
+## 最快复现 L7.1 点云链路
+
+在 WSL 发行版 `ld666` 中运行：
+
+```bash
+cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
+bash scripts/open_l7_1_perception_terminals.sh S5
+```
+
+脚本会依次打开 Gazebo GUI、ArduPilot SITL、MAVROS、L4 bridge、L4 mapper、L5 Shield 和 L7.1 policy。终端 2 的 SITL 命令保持为：
+
+```bash
+cd ~/ardupilot/Tools/autotest
+python3 ./sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --map --console --out=udp:127.0.0.1:14550
+```
+
+任务正常降落、触发 FAILSAFE/异常或疑似坠机后，脚本默认等待 15 秒并自动清理本次仿真相关进程和终端窗口。保留窗口调试时可加：
+
+```bash
+bash scripts/open_l7_1_perception_terminals.sh S5 --no-auto-cleanup
+```
 
 ## 已完成层级
 
@@ -191,7 +226,7 @@ L5_SafetyShield安全层复现教程.md
 
 ### L6：简化环境强化学习
 
-已完成第一版轻量训练闭环：`l6_rl_training` 提供二维定高 Gym-style 环境、S1-S5 抽象几何、baseline/AKPF/full 观测、L5 风格速度裁剪、自包含 PyTorch PPO 入口和策略评估入口。
+已完成第一版轻量训练闭环，并补充 L6.1/L6.2/L6.3 工程入口：`l6_rl_training` 提供二维定高 Gym-style 环境、S1-S5 抽象几何、随机场景生成、baseline/AKPF/full/perception 观测、L5 风格速度裁剪、自包含 PyTorch PPO 入口和策略评估入口。
 
 当前第一阶段使用 AKPF 观测、Safety Shield 和 L3 风格 teacher 行为克隆 warm-start，导出策略后在 S1-S5 简化环境中每个场景评估 10 次均通过：
 
@@ -201,6 +236,20 @@ S2_narrow_gate:           success=1.00, mean_goal_dist=0.4721, mean_min_clearanc
 S3_corridor:              success=1.00, mean_goal_dist=0.4581, mean_min_clearance=1.0706
 S4_table_or_low_obstacle: success=1.00, mean_goal_dist=0.4621, mean_min_clearance=1.1873
 S5_corner:                success=1.00, mean_goal_dist=0.4510, mean_min_clearance=0.5994
+```
+
+截至 2026-06-27，L6.1-L6.3 的第一轮结论如下：
+
+```text
+L6.1 固定 S1-S5 对比：AKPF 观测比 baseline 更快得到可用解，但 PPO 后期仍会回落；
+L6.2 fixed perception：best checkpoint 可在固定 S1-S5 评估 5/5，最终 checkpoint 会退化；
+L6.3 mixed perception BC：random 30 x 5 为 145/150，失败从碰撞转为超时，安全性更好。
+```
+
+因此当前 L7.1 Gazebo perception 部署优先使用：
+
+```text
+artifacts/tmp_archive_20260627/l6_training/l6_l63_perception_mixed_bc/policy_best.pt
 ```
 
 核心文件：
@@ -217,24 +266,46 @@ L6_简化环境强化学习复现教程.md
 
 ### L7：ROS2/Gazebo 策略部署
 
-已完成第一版 ROS2 策略部署节点 `l7_policy_deployment`。该节点加载 L6 导出的 `policy.pt`，订阅 MAVROS local odom/pose，捕获 `mission_origin` 后按相对起飞点坐标编码 AKPF 观测，执行策略推理，并把 raw velocity 发布到 `/l5/raw_cmd_vel`，继续由 L5 Safety Shield 输出到 MAVROS。
+已完成 ROS2/Gazebo 策略部署节点 `l7_policy_deployment`，并将当前主线推进到 L7.1 perception。节点加载 L6 导出的 policy，订阅 MAVROS local odom/pose 捕获 `mission_origin`，执行策略推理，把 raw velocity 发布到 `/l5/raw_cmd_vel`，最后由 L5 Safety Shield 输出 MAVROS 速度 setpoint。
 
-当前已完成 ROS2 合成冒烟和 Gazebo S1-S5 一轮部署验证。每个场景验证结束后均清理 Gazebo、SITL、MAVProxy、MAVROS、bridge、mapper、shield、policy node 相关进程，并确认残留计数为 0。
+L7 目前有两种模式：
+
+```text
+geometry   旧版/对照链路，使用 SCENARIOS 抽象几何构造避障特征；
+perception 当前主线，使用 L4 点云/局部地图构造避障特征。
+```
+
+当前推荐策略：
+
+```text
+artifacts/tmp_archive_20260627/l6_training/l6_l63_perception_mixed_bc/policy_best.pt
+```
+
+该 checkpoint 为 `obs_mode=perception`。实际运行日志已确认：
+
+```text
+encoder_mode=perception
+/l4/local_cloud -> l7_policy_node
+NAVIGATING ... map_age=...
+```
+
+因此当前 L7.1 的避障输入来自 L4 点云/局部地图，而不是障碍物真值几何。`SCENARIOS` 仍用于场景名和默认目标点，这属于任务配置；真机阶段应替换为外部任务目标接口。
 
 验收结果：
 
 ```text
-S1_single_front_obstacle:  GOAL pos=(4.29, 0.45, 2.00), goal_dist=0.46
-S2_narrow_gate:           GOAL pos=(3.73, 0.14, 2.00), goal_dist=0.49
-S3_corridor:              GOAL pos=(3.75, 0.05, 2.00), goal_dist=0.46
-S4_table_or_low_obstacle: GOAL pos=(3.74, -0.08, 2.00), goal_dist=0.47
-S5_corner:                GOAL pos=(3.35, 2.56, 2.00), goal_dist=0.46
+S1_single_front_obstacle:  goal_reached
+S2_narrow_gate:           goal_reached
+S3_corridor:              goal_reached
+S4_table_or_low_obstacle: goal_reached
+S5_corner:                goal_reached
 ```
 
 核心文件：
 
 ```text
 src/l7_policy_deployment
+scripts/open_l7_1_perception_terminals.sh
 ```
 
 参考文档：
@@ -270,4 +341,4 @@ cd "/mnt/c/Users/admin/Documents/无人机强化学习 2"
 ArduPilot_AKPF_工程实施路线.md
 ```
 
-接下来的打算：继续 L6 的 PPO 长训、baseline 对比和训练曲线统计；同时在 L7 中补充 Gazebo S1-S5 多次重复实验、Shield 激活次数和推理频率统计。
+当前下一步：把已跑通的 L7.1 perception 链路做成正式统计。优先补齐 S1-S5 多轮重复实验、S6/S8/S9 感知部署复核、未知/随机障碍布局验证，以及 Shield 激活、map_age、point_count、cloud_valid、inference_ms 等指标表。固定场景和未知布局都稳定前，不进入 L8 近壁/近地扰动注入。
